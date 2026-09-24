@@ -2,7 +2,9 @@ import { config } from '../config.js';
 import { AppError } from '../errors.js';
 import { GeminiProvider, GroqProvider } from './providers.js';
 
-const BENCH_MS = 10 * 60 * 1000;
+// How long a failing provider is skipped. A bad key or an empty account needs a human to fix it;
+// an overloaded or very slow provider usually recovers within minutes.
+const BENCH_MS = { auth: 10 * 60 * 1000, billing: 10 * 60 * 1000, server: 3 * 60 * 1000, timeout: 3 * 60 * 1000 };
 
 // Which provider goes first for each kind of work. The second one is only used if the first fails.
 // Gemini reads long documents and images and writes the final report; Groq keeps the live conversation fast.
@@ -17,8 +19,8 @@ export function createAI(providers = {
   gemini: new GeminiProvider(config.gemini),
   groq: new GroqProvider(config.groq),
 }) {
-  // A rejected key or an empty account won't fix itself in seconds, so that provider is skipped
-  // for a while instead of adding a failed round trip to every call.
+  // After a failure like these, the next calls go straight to the other provider for a while
+  // instead of waiting for the same failure again (a timeout alone costs up to 40 seconds).
   const benchedUntil = new Map();
 
   async function generate({ route, system, user, schema, images = [], maxTokens, timeoutMs, effort, label = route }) {
@@ -35,7 +37,7 @@ export function createAI(providers = {
         return await generateWith(provider, { system, user, schema, images, maxTokens, timeoutMs, effort });
       } catch (err) {
         console.warn(`[ai] ${label} via ${provider.name} failed (${err.kind || 'error'}): ${err.message}`);
-        if (err.kind === 'auth' || err.kind === 'billing') benchedUntil.set(provider.name, Date.now() + BENCH_MS);
+        if (BENCH_MS[err.kind]) benchedUntil.set(provider.name, Date.now() + BENCH_MS[err.kind]);
         failures.push(err);
       }
     }

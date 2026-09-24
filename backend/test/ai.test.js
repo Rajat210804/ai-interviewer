@@ -30,12 +30,21 @@ test('uses the preferred provider for each route', async () => {
   assert.equal((await ai.generate(request('live'))).answer, 'from groq');
 });
 
-test('falls back to the other provider when the first one fails', async () => {
+test('falls back to the other provider when the first one fails, and skips a slow one for a while', async () => {
   const gemini = fakeProvider('gemini', [new ProviderError('gemini', 'timeout', 'slow')]);
   const groq = fakeProvider('groq', ['{"answer":"rescued"}']);
   const ai = createAI({ gemini, groq });
   assert.equal((await ai.generate(request('report'))).answer, 'rescued');
-  assert.equal(gemini.calls, 1);
+  assert.equal((await ai.generate(request('analysis'))).answer, 'rescued');
+  assert.equal(gemini.calls, 1, 'the second call does not wait for Gemini to time out again');
+});
+
+test('a malformed reply does not bench a provider', async () => {
+  const gemini = fakeProvider('gemini', ['not json', 'still not json', '{"answer":"ok"}']);
+  const groq = fakeProvider('groq', ['{"answer":"groq"}']);
+  const ai = createAI({ gemini, groq });
+  assert.equal((await ai.generate(request('analysis'))).answer, 'groq');
+  assert.equal((await ai.generate(request('analysis'))).answer, 'ok');
 });
 
 test('asks the same provider to repair malformed JSON once before falling back', async () => {
