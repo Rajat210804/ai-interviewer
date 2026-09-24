@@ -2,6 +2,8 @@ const env = process.env;
 
 export const config = {
   port: Number(env.PORT) || 3001,
+  // Which provider reads documents and writes the report first: "gemini" (default) or "groq".
+  primary: env.AI_PRIMARY?.trim().toLowerCase() === 'groq' ? 'groq' : 'gemini',
   gemini: {
     apiKey: env.GEMINI_API_KEY,
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',

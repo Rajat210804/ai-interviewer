@@ -39,6 +39,15 @@ test('falls back to the other provider when the first one fails, and skips a slo
   assert.equal(gemini.calls, 1, 'the second call does not wait for Gemini to time out again');
 });
 
+test('AI_PRIMARY=groq puts Groq first for documents and the report, but not for images', async () => {
+  const gemini = fakeProvider('gemini', ['{"answer":"from gemini"}']);
+  const groq = fakeProvider('groq', ['{"answer":"from groq"}']);
+  const ai = createAI({ gemini, groq }, 'groq');
+  assert.equal((await ai.generate(request('analysis'))).answer, 'from groq');
+  assert.equal((await ai.generate(request('report'))).answer, 'from groq');
+  assert.equal((await ai.generate(request('ocr'))).answer, 'from gemini');
+});
+
 test('a malformed reply does not bench a provider', async () => {
   const gemini = fakeProvider('gemini', ['not json', 'still not json', '{"answer":"ok"}']);
   const groq = fakeProvider('groq', ['{"answer":"groq"}']);

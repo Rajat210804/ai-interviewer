@@ -80,6 +80,9 @@ test('Gemini receives images inline and reports blocked or empty replies', async
   });
   assert.deepEqual(requests[0].body.contents[0].parts[1], { inlineData: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } });
 
+  mockFetch([{ body: { candidates: [{ content: { parts: [{ text: '{"name": "' }] }, finishReason: 'MAX_TOKENS' }] } }]);
+  await assert.rejects(gemini.chat({ messages }), (err) => err.kind === 'truncated');
+
   mockFetch([{ body: { promptFeedback: { blockReason: 'SAFETY' } } }]);
   await assert.rejects(gemini.chat({ messages }), (err) => err.kind === 'empty' && /SAFETY/.test(err.message));
 

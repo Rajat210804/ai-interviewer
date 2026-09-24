@@ -40,7 +40,7 @@ export function documentsRouter(ai) {
 
     const profile = await ai.generate({
       route: 'analysis', label: `${req.params.kind} analysis`, ...kind.prompt(document.text),
-      schema: kind.schema, maxTokens: 4000, timeoutMs: 40000,
+      schema: kind.schema, maxTokens: 4000, timeoutMs: 25000,
     });
     if (!kind.looksRight(profile)) {
       throw new AppError(422, `This doesn't look like a ${kind.label}. Please check you uploaded the right document.`);

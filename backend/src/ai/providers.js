@@ -5,7 +5,7 @@ export class ProviderError extends Error {
   constructor(provider, kind, message, retryAfterMs) {
     super(`${provider}: ${message}`);
     this.provider = provider;
-    this.kind = kind; // auth | billing | rate_limit | too_large | model | bad_request | server | timeout | network | empty | invalid_json
+    this.kind = kind; // auth | billing | rate_limit | too_large | model | bad_request | server | timeout | network | empty | truncated | invalid_json
     this.retryAfterMs = retryAfterMs;
   }
 }
@@ -150,6 +150,9 @@ export class GeminiProvider extends AIProvider {
 
     const data = await res.json();
     const candidate = data.candidates?.[0];
+    if (candidate?.finishReason === 'MAX_TOKENS') {
+      throw new ProviderError(this.name, 'truncated', 'the reply hit the output limit before finishing');
+    }
     const text = (candidate?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('');
     if (!text.trim()) {
       const reason = candidate?.finishReason || data.promptFeedback?.blockReason || 'no candidates';

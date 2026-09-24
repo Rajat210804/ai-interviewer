@@ -6,19 +6,19 @@ import { GeminiProvider, GroqProvider } from './providers.js';
 // an overloaded or very slow provider usually recovers within minutes.
 const BENCH_MS = { auth: 10 * 60 * 1000, billing: 10 * 60 * 1000, server: 3 * 60 * 1000, timeout: 3 * 60 * 1000 };
 
-// Which provider goes first for each kind of work. The second one is only used if the first fails.
-// Gemini reads long documents and images and writes the final report; Groq keeps the live conversation fast.
-const ROUTES = {
-  analysis: ['gemini', 'groq'],
-  ocr: ['gemini', 'groq'],
-  live: ['groq', 'gemini'],
-  report: ['gemini', 'groq'],
-};
+// Which provider goes first for each kind of work; the other is only used if the first fails.
+// By default Gemini reads documents and writes the report while Groq keeps the live conversation fast.
+// AI_PRIMARY=groq puts Groq first for everything except reading images.
+function routesFor(primary) {
+  const main = primary === 'groq' ? ['groq', 'gemini'] : ['gemini', 'groq'];
+  return { analysis: main, report: main, ocr: ['gemini', 'groq'], live: ['groq', 'gemini'] };
+}
 
 export function createAI(providers = {
   gemini: new GeminiProvider(config.gemini),
   groq: new GroqProvider(config.groq),
-}) {
+}, primary = config.primary) {
+  const ROUTES = routesFor(primary);
   // After a failure like these, the next calls go straight to the other provider for a while
   // instead of waiting for the same failure again (a timeout alone costs up to 40 seconds).
   const benchedUntil = new Map();
