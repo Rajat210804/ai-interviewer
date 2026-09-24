@@ -83,6 +83,7 @@ ai-interviewer/
 | `GEMINI_API_KEY` | One of the two keys | | Google AI Studio key |
 | `GROQ_API_KEY` | One of the two keys | | Groq key (also needed for the Whisper fallback) |
 | `GEMINI_MODEL` | No | `gemini-3.8-flash` | Gemini model for documents, images and the report |
+| `GEMINI_FALLBACK_MODEL` | No | `gemini-3.5-flash-lite` | Used automatically when the main Gemini model is overloaded or unavailable |
 | `GROQ_MODEL` | No | `openai/gpt-oss-120b` | Groq chat model |
 | `GROQ_VISION_MODEL` | No | `qwen/qwen3.8-27b` | Groq model for reading images |
 | `GROQ_WHISPER_MODEL` | No | `whisper-large-v3-turbo` | Speech-to-text fallback |
@@ -208,7 +209,7 @@ The engine (`backend/src/interview/engine.js`) keeps one session per interview. 
 npm test --prefix backend
 ```
 
-There are 35 tests. They cover:
+There are 37 tests. They cover:
 
 1. The question planner.
 2. Provider request formats: Gemini's JSON output and image parts, Groq reasoning settings, Whisper upload.
@@ -236,6 +237,8 @@ node backend/test/ui-server.js     # http://localhost:4173, fake interviewer
 | `check:ai` says Gemini is rate limited or over quota | The free tier has per-minute and daily limits. Wait and retry, or enable billing on the Google AI Studio project. Groq covers in the meantime. |
 | A provider's account has no credit left | Top it up, or remove that key and the app runs on the other provider alone. A provider with a rejected key or no credit is skipped for 10 minutes, so the app keeps working. |
 | `check:ai` says the model is not available | Your account can't use the default model. Set `GEMINI_MODEL` or `GROQ_MODEL` to one listed in Google AI Studio or the Groq console. |
+| Logs show `analysis via gemini failed (timeout)` | Gemini took longer than 40 seconds, so Groq took over. Document reading now uses Gemini's "low" thinking level, which is much faster. If it keeps happening, set `GEMINI_MODEL=gemini-3.5-flash-lite`. |
+| Logs show Gemini `HTTP 503 ... high demand` | Google's servers for that model are busy. The app retries on `GEMINI_FALLBACK_MODEL` and then Groq, so interviews keep working. If it happens often, set `GEMINI_MODEL=gemini-3.5-flash-lite` on Render. |
 | Gemini says "API key not valid" | Copy the key again from aistudio.google.com (API keys), with no spaces, and update it on Render. |
 | No voice button | Voice answers need Chrome or Edge, or the Groq key for the Whisper fallback. Typing always works. |
 | Microphone or camera blocked | Allow them in the browser's site settings. The site must be served over HTTPS (Render does this). |

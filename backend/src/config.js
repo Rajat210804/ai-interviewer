@@ -6,6 +6,7 @@ export const config = {
     apiKey: env.GEMINI_API_KEY,
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     model: env.GEMINI_MODEL || 'gemini-3.8-flash',
+    fallbackModel: env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite',
   },
   groq: {
     apiKey: env.GROQ_API_KEY,

@@ -31,7 +31,7 @@ export function createInterviewEngine(ai, { random = Math.random } = {}) {
   async function start({ setup, cv, jd }) {
     const plan = await ai.generate({
       route: 'analysis', label: 'plan', ...planPrompt(setup, cv, jd),
-      schema: planSchema, maxTokens: 2500, timeoutMs: 45000,
+      schema: planSchema, maxTokens: 2500, timeoutMs: 40000,
     });
 
     const panel = setup.panel.map((seat, i) => ({ id: `i${i + 1}`, ...seat }));

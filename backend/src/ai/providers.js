@@ -21,8 +21,8 @@ function kindForStatus(status, body) {
   if (status === 401 || status === 403 || BAD_KEY.test(body)) return 'auth';
   if (status === 413 || /request too large/i.test(body)) return 'too_large';
   if (status === 429) return 'rate_limit';
+  if (status >= 500) return 'server'; // includes Gemini's 503 "model is experiencing high demand"
   if (status === 404 || /model/i.test(body)) return 'model';
-  if (status >= 500) return 'server';
   return 'bad_request';
 }
 
@@ -90,7 +90,7 @@ export class AIProvider {
         await sleep(retryAfterMs);
         continue;
       }
-      throw new ProviderError(this.name, kind, `HTTP ${res.status} ${body.slice(0, 200)}`, retryAfterMs);
+      throw new ProviderError(this.name, kind, `HTTP ${res.status} ${body.replace(/\s+/g, ' ').slice(0, 300)}`, retryAfterMs);
     }
   }
 }
@@ -102,15 +102,31 @@ const THINKING_HEADROOM = 8192;
 // Uses Gemini's own generateContent API rather than its OpenAI-compatible layer, because
 // responseMimeType is the documented way to guarantee a JSON reply.
 export class GeminiProvider extends AIProvider {
-  constructor(options) {
+  constructor({ fallbackModel, ...options }) {
     super({ name: 'gemini', ...options });
+    this.fallbackModel = fallbackModel;
   }
 
   authHeaders() {
     return { 'x-goog-api-key': this.apiKey };
   }
 
-  async chat({ messages, maxTokens = 2000, timeoutMs = 30000, json = true }) {
+  // Google's newest models are sometimes overloaded (HTTP 503 "high demand") or not enabled for a key.
+  // A lighter Gemini model usually still answers, which is cheaper than falling back to another provider.
+  async chat(options) {
+    const models = [...new Set([this.model, this.fallbackModel].filter(Boolean))];
+    for (const [i, model] of models.entries()) {
+      try {
+        return await this.generateWith(model, options);
+      } catch (err) {
+        const next = models[i + 1];
+        if (!next || !['server', 'model'].includes(err.kind)) throw err;
+        console.warn(`[ai] gemini ${model} unavailable (${err.kind}), trying ${next}`);
+      }
+    }
+  }
+
+  async generateWith(model, { messages, maxTokens = 2000, timeoutMs = 30000, json = true, effort = 'low' }) {
     const system = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
     const body = {
       contents: messages
@@ -119,11 +135,14 @@ export class GeminiProvider extends AIProvider {
       generationConfig: {
         maxOutputTokens: maxTokens + THINKING_HEADROOM,
         ...(json && { responseMimeType: 'application/json' }),
+        // Gemini 3 models think at "medium" by default, which can take a minute on a long CV.
+        // Reading documents only needs "low"; the report asks for "medium".
+        ...(model.startsWith('gemini-3') && { thinkingConfig: { thinkingLevel: effort } }),
       },
     };
     if (system) body.systemInstruction = { parts: [{ text: system }] };
 
-    const res = await this.request(`/models/${encodeURIComponent(this.model)}:generateContent`, {
+    const res = await this.request(`/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

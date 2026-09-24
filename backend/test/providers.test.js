@@ -43,6 +43,32 @@ test('Gemini requests use its own API with JSON output and room for thinking tok
   assert.deepEqual(body.contents.map((c) => c.role), ['user', 'model', 'user']);
   assert.equal(body.generationConfig.responseMimeType, 'application/json');
   assert.ok(body.generationConfig.maxOutputTokens > 1000);
+  assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: 'low' }, 'document reading thinks lightly');
+});
+
+test('Gemini thinking level follows the task, and only Gemini 3 models get the setting', async () => {
+  const requests = mockFetch([geminiReply({ text: '{}' }), geminiReply({ text: '{}' })]);
+  await new GeminiProvider({ apiKey: 'k', baseUrl: GEMINI_BASE, model: 'gemini-3.6-flash' }).chat({ messages, effort: 'medium' });
+  await new GeminiProvider({ apiKey: 'k', baseUrl: GEMINI_BASE, model: 'gemini-2.5-flash' }).chat({ messages });
+  assert.deepEqual(requests[0].body.generationConfig.thinkingConfig, { thinkingLevel: 'medium' });
+  assert.equal('thinkingConfig' in requests[1].body.generationConfig, false);
+});
+
+test('an overloaded Gemini model hands over to the lighter fallback model', async () => {
+  const overloaded = { status: 503, body: { error: { code: 503, message: 'This model is currently experiencing high demand. Please try again later.', status: 'UNAVAILABLE' } } };
+  const requests = mockFetch([overloaded, geminiReply({ text: '{"ok":true}' })]);
+  const gemini = new GeminiProvider({ apiKey: 'k', baseUrl: GEMINI_BASE, model: 'gemini-3.8-flash', fallbackModel: 'gemini-3.5-flash-lite' });
+  assert.equal(await gemini.chat({ messages }), '{"ok":true}');
+  assert.deepEqual(requests.map((r) => r.url.split('/models/')[1]), ['gemini-3.8-flash:generateContent', 'gemini-3.5-flash-lite:generateContent']);
+
+  // When both are down the error is a server problem, so the router moves on to Groq.
+  mockFetch([overloaded, overloaded]);
+  await assert.rejects(gemini.chat({ messages }), (err) => err.kind === 'server' && !/\n/.test(err.message));
+
+  // A bad key is not retried on the fallback model.
+  const bad = mockFetch([{ status: 400, body: { error: { message: 'API key not valid. Please pass a valid API key.' } } }]);
+  await assert.rejects(gemini.chat({ messages }), (err) => err.kind === 'auth');
+  assert.equal(bad.length, 1);
 });
 
 test('Gemini receives images inline and reports blocked or empty replies', async () => {
