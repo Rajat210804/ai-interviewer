@@ -1,0 +1,5 @@
+Rajat Sample
+Final-year B.Tech student, Electronics & Instrumentation, Minor in Computer Science
+Experience: R&D Intern at JBM Green (Jun 2026 - Jul 2026). Built a Python tool that processes battery test data and saved ~2 days of manual work per test cycle.
+Projects: MedIntel AI - LangGraph agent over Oracle SQL with 157 automated tests.
+Skills: Python, SQL, Excel, Power BI, LangGraph
