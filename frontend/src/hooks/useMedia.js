@@ -100,21 +100,17 @@ export function useSpeechRecognition() {
   const wanted = useRef(false);
   const finalText = useRef('');
   const interimText = useRef('');
+  const networkFailures = useRef(0);
 
-  const start = useCallback(() => {
-    if (!Recognition || wanted.current) return;
-    wanted.current = true;
-    finalText.current = '';
-    interimText.current = '';
-    setTranscript('');
-    setInterim('');
-    setError('');
-
+  // Chrome ends a recognition session after a pause or about a minute of speech. For long answers
+  // a fresh session is started each time, and the text so far is kept, so nothing is cut off.
+  const begin = useCallback(() => {
     const rec = new Recognition();
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = navigator.language?.startsWith('en') ? navigator.language : 'en-US';
     rec.onresult = (event) => {
+      networkFailures.current = 0;
       let pending = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
@@ -127,27 +123,63 @@ export function useSpeechRecognition() {
     };
     rec.onerror = (event) => {
       if (event.error === 'no-speech' || event.error === 'aborted') return;
+      // The speech service drops now and then during long answers; reconnect a few times first.
+      if (event.error === 'network' && ++networkFailures.current <= 3) return;
       wanted.current = false;
       setError(RECOGNITION_ERRORS[event.error] || 'Voice input stopped unexpectedly. You can type your answer instead.');
     };
-    // Chrome ends recognition after a pause; keep going until the candidate says they are done.
     rec.onend = () => {
-      if (wanted.current) {
-        try { rec.start(); } catch { wanted.current = false; setListening(false); }
-      } else {
-        setListening(false);
+      if (recognition.current !== rec) return;
+      if (interimText.current.trim()) {
+        // Words still pending when a session ends would otherwise be lost.
+        finalText.current += `${interimText.current.trim()} `;
+        interimText.current = '';
+        setTranscript(finalText.current);
+        setInterim('');
       }
+      if (!wanted.current) {
+        setListening(false);
+        return;
+      }
+      setTimeout(() => {
+        if (wanted.current && recognition.current === rec) begin();
+      }, 150);
     };
     recognition.current = rec;
-    rec.start();
-    setListening(true);
+    try {
+      rec.start();
+    } catch {
+      wanted.current = false;
+      setListening(false);
+      setError('Voice input stopped unexpectedly. You can type your answer instead.');
+    }
   }, []);
+
+  const start = useCallback(() => {
+    if (!Recognition || wanted.current) return;
+    wanted.current = true;
+    finalText.current = '';
+    interimText.current = '';
+    networkFailures.current = 0;
+    setTranscript('');
+    setInterim('');
+    setError('');
+    setListening(true);
+    begin();
+  }, [begin]);
 
   const stop = useCallback(() => {
     wanted.current = false;
-    recognition.current?.stop();
+    const rec = recognition.current;
+    recognition.current = null;
+    rec?.stop();
     setListening(false);
-    return `${finalText.current} ${interimText.current}`.replace(/\s+/g, ' ').trim();
+    const text = `${finalText.current} ${interimText.current}`.replace(/\s+/g, ' ').trim();
+    finalText.current = '';
+    interimText.current = '';
+    setTranscript('');
+    setInterim('');
+    return text;
   }, []);
 
   useEffect(() => () => { wanted.current = false; recognition.current?.abort(); }, []);
@@ -194,22 +226,68 @@ export function useRecorder() {
 export function useCamera() {
   const [stream, setStream] = useState(null);
   const [error, setError] = useState('');
+  const streamRef = useRef(null);
+  streamRef.current = stream;
 
-  const toggle = useCallback(async () => {
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      setStream(null);
-      return;
-    }
+  const start = useCallback(async () => {
+    if (streamRef.current) return;
     try {
       setStream(await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' } }));
       setError('');
     } catch (err) {
       setError(err.name === 'NotAllowedError' ? 'Camera access is blocked in your browser.' : 'No camera is available.');
     }
-  }, [stream]);
+  }, []);
+
+  const stop = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    setStream(null);
+  }, []);
+
+  const toggle = useCallback(() => (streamRef.current ? stop() : start()), [start, stop]);
 
   useEffect(() => () => stream?.getTracks().forEach((track) => track.stop()), [stream]);
 
-  return { stream, error, toggle };
+  return { stream, error, start, stop, toggle };
+}
+
+// ---------- Microphone check for the waiting room ----------
+
+export function useMicLevel(enabled) {
+  const [level, setLevel] = useState(0);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!enabled) return;
+    let stream;
+    let context;
+    let frame;
+    let stopped = false;
+    navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => {
+      if (stopped) return s.getTracks().forEach((t) => t.stop());
+      stream = s;
+      context = new AudioContext();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 512;
+      context.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Uint8Array(analyser.fftSize);
+      const read = () => {
+        analyser.getByteTimeDomainData(samples);
+        const peak = samples.reduce((max, v) => Math.max(max, Math.abs(v - 128)), 0) / 128;
+        setLevel((previous) => Math.max(peak, previous * 0.85)); // smooth the fall so the meter doesn't flicker
+        frame = requestAnimationFrame(read);
+      };
+      read();
+    }).catch((err) => {
+      setError(err.name === 'NotAllowedError' ? 'Microphone access is blocked. You can still type your answers.' : 'No microphone found. You can still type your answers.');
+    });
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(frame);
+      stream?.getTracks().forEach((t) => t.stop());
+      context?.close();
+    };
+  }, [enabled]);
+
+  return { level, error };
 }

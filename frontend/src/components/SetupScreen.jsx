@@ -1,7 +1,12 @@
-import { ArrowRight, Mic, Video } from 'lucide-react';
+import { ArrowRight, Mic, ShieldCheck, Video } from 'lucide-react';
 import DocumentCard from './DocumentCard';
 import { Button, ErrorBanner, OptionGroup, Portrait, TextField } from './ui';
 import { AVATARS, DIFFICULTIES, INTERVIEW_TYPES, LENGTHS, ROLE_INFO, avatarById, buildPanel } from '../data/panel';
+
+const CONDITIONS = [
+  { id: true, label: 'Real interview', description: 'Camera on, full screen, no pasting. Tab switches and looking away are noted.' },
+  { id: false, label: 'Relaxed practice', description: 'No integrity checks. Camera is optional.' },
+];
 
 const PANEL_SIZES = [
   { id: 1, label: '1 interviewer', description: 'One-to-one' },
@@ -75,6 +80,7 @@ export default function SetupScreen({ setup, setSetup, docs, onAnalyze, onClear,
               <OptionGroup label="Type" options={INTERVIEW_TYPES} value={setup.type} onChange={setType} />
               <OptionGroup label="Difficulty" options={DIFFICULTIES} value={setup.difficulty} onChange={(difficulty) => update({ difficulty })} />
               <OptionGroup label="Length" options={LENGTHS} value={setup.length} onChange={(length) => update({ length })} />
+              <OptionGroup label="Conditions" options={CONDITIONS} value={setup.proctored} onChange={(proctored) => update({ proctored })} columns={2} />
             </div>
           </Section>
 
@@ -128,6 +134,11 @@ export default function SetupScreen({ setup, setSetup, docs, onAnalyze, onClear,
             <p className="mt-1 text-sm text-muted">
               {INTERVIEW_TYPES.find((t) => t.id === setup.type).label} · {DIFFICULTIES.find((d) => d.id === setup.difficulty).label} · {setup.length} questions
             </p>
+            {setup.proctored && (
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-line bg-raised px-2.5 py-1 text-xs text-ink-soft">
+                <ShieldCheck className="size-3.5 text-accent" aria-hidden /> Real interview conditions
+              </p>
+            )}
 
             <div className="mt-5 flex -space-x-3">
               {setup.panel.map((seat) => (
@@ -158,7 +169,7 @@ export default function SetupScreen({ setup, setSetup, docs, onAnalyze, onClear,
 
             <div className="mt-5 space-y-2 border-t border-line pt-4 text-xs leading-relaxed text-muted">
               <p className="flex gap-2"><Mic className="mt-0.5 size-3.5 shrink-0" /> Answer by voice (best in Chrome or Edge) or by typing.</p>
-              <p className="flex gap-2"><Video className="mt-0.5 size-3.5 shrink-0" /> Your camera stays on your device and is only shown to you.</p>
+              <p className="flex gap-2"><Video className="mt-0.5 size-3.5 shrink-0" /> Your camera stays on your device. Integrity checks run in your browser; video is never uploaded.</p>
             </div>
           </div>
         </aside>

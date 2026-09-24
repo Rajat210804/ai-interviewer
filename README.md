@@ -10,10 +10,11 @@ It runs as a single Node service: an Express API that also serves the React app.
 2. **Document analysis on upload.** The CV and JD are analysed as soon as you add them, so they are usually ready before you finish choosing settings.
 3. **Interview types:** HR, Technical or Mixed. **Difficulties:** Easy, Medium or Hard, and the difficulty changes the reasoning depth and how hard the panel pushes, not just a label. **Lengths:** 10, 20 or 30 planned questions.
 4. **Panels of 1 to 3 interviewers**, each with its own role (HR Manager, Technical Lead, Hiring Manager), personality, voice and photo avatar.
-5. **Video-call style interview room:** a main speaker tile, a filmstrip, your optional camera preview, captions, and mute, camera, voice and end controls.
-6. **Voice or text answers.** Speech recognition runs in the browser (Chrome and Edge), with a Groq Whisper fallback for other browsers and a text box everywhere.
+5. **Video-call style interview room:** a waiting room that checks your camera and microphone while the panel gets ready, then a main speaker tile, a filmstrip, your camera, captions, and mute, camera, voice and end controls.
+6. **Voice or text answers of any reasonable length.** Answers can run to 15,000 characters (about 2,500 words). The answer box grows as you type, and a timer and word count show how long you have been talking. Speech recognition runs in the browser (Chrome and Edge) and keeps listening through pauses, with a Groq Whisper fallback for other browsers and a text box everywhere.
 7. **Dynamic questions.** Each question is generated after your previous answer, so follow-ups build on what you actually said.
-8. **Debrief dashboard:** an overall score, six skill dimensions, a chart of scores by question, strengths and weak areas, and technical, HR and resume analysis. It also shows your CV against the role, a study plan, a question-by-question review with an ideal answer structure, and example stronger answers. You can save it as a PDF.
+8. **Real interview conditions (on by default).** Your camera stays on, the interview runs in full screen, pasting is turned off, and the app notices when you leave the window, look away, leave the camera frame or someone else appears. The interviewer reacts like a real one would, with a polite reminder, and the debrief includes an integrity summary. Choose "Relaxed practice" on the setup screen to switch this off.
+9. **Debrief dashboard:** an overall score, six skill dimensions, a chart of scores by question, strengths and weak areas, and technical, HR and resume analysis. It also shows your CV against the role, a study plan, a question-by-question review with an ideal answer structure, example stronger answers and, in real interview conditions, the integrity summary. You can save it as a PDF.
 
 ## Architecture
 
@@ -23,10 +24,11 @@ Browser (React)                           Express server                       M
 Setup ── upload CV / JD ───────────────▶  POST /api/documents/:kind  ──┐
                                             extract text (PDF, DOCX,   │
                                             TXT, image OCR) + analyse  ├──▶  AI layer ──▶ Gemini (analysis, OCR, report)
-Preparing ── start ────────────────────▶  POST /api/interview/start   │     createAI()    Groq  (live turns, Whisper)
+Waiting room ── start ─────────────────▶  POST /api/interview/start   │     createAI()    Groq  (live turns, Whisper)
                                             plan + opening question    │     fallback to the other
 Interview room ── each answer ─────────▶  POST /api/interview/:id/answer   provider if one fails
-                                            assess + next question     │
+  (face and focus checks run here,          assess + next question     │
+   only counts are sent)                                                │
 Debrief ◀── report ─────────────────────  POST /api/interview/:id/end ┘
 ```
 
@@ -63,16 +65,18 @@ ai-interviewer/
 │   │   ├── documents/extract.js   file type detection and text extraction
 │   │   ├── interview/
 │   │   │   ├── flow.js     panel roles, question plan, opening lines
-│   │   │   └── engine.js   session state, turns, follow-ups, report
+│   │   │   ├── engine.js   session state, turns, follow-ups, report
+│   │   │   └── integrity.js  proctoring counts: validation, notes, summary
 │   │   └── routes/         documents, interview, transcribe
 │   ├── scripts/check-ai.js checks that your keys and models work
 │   └── test/               unit and API tests with a fake AI
 └── frontend/
+    ├── public/models/      face detection models (about 270 KB, served locally)
     └── src/
-        ├── App.jsx         screen flow: setup, preparing, interview, report
+        ├── App.jsx         screen flow: setup, waiting room, interview, report
         ├── api.js          fetch wrapper with friendly errors
         ├── data/panel.js   avatars, roles, options
-        ├── hooks/          document analysis, speech, camera
+        ├── hooks/          document analysis, speech, camera, proctoring
         └── components/     setup, interview room, report and shared UI
 ```
 
@@ -194,6 +198,22 @@ The engine (`backend/src/interview/engine.js`) keeps one session per interview. 
 5. The prompt tells the interviewer to probe vague answers ("What exactly did you implement yourself?"), verify impressive claims with concrete questions, challenge wrong statements, and avoid chatbot praise.
 6. When the interview ends, the full transcript and the live assessments go to the report prompt. Its output is merged with the real questions and answers, which come from the session rather than from the model, and the session is deleted.
 
+## Real interview conditions and integrity checks
+
+With "Real interview" selected on the setup screen (the default), the interview behaves like a proctored video interview.
+
+1. **Waiting room.** Before joining, you see your camera preview, a face check and a microphone level meter, plus the rules. Camera and microphone permission are asked for here, so nothing pops up mid-interview.
+2. **Full screen.** Joining opens the interview in full screen. If you leave it, the interview pauses behind a prompt to return; you may carry on in the window, but the exit is recorded.
+3. **Camera stays on.** The camera button is locked while the camera works. About once a second, a small face model checks the picture: no face in frame, head turned away from the screen, or a second face.
+4. **Window and tab focus.** Switching tabs or apps for 2 seconds or more is recorded with its duration, and a notice tells you so.
+5. **No pasting.** Paste and drag-and-drop into the answer box are blocked and counted, and the question captions can't be copied.
+6. **The interviewer notices.** Events during an answer are passed to the interviewer, who may add one polite reminder ("please stay on this screen"), at most twice per interview. The interviewer is told never to accuse you of cheating and to judge each answer on its content only.
+7. **Integrity summary in the debrief.** It shows a level (No concerns, Minor flags or Needs review) with the counts behind it, which questions were flagged, and a per-question note. It says plainly that automated checks can be wrong.
+
+**Privacy.** Face checks run entirely in the browser with [face-api](https://github.com/vladmandic/face-api) (TensorFlow.js, a tiny face detector and a 68-point landmark model, about 270 KB, served from this app). Video never leaves the device. The server only receives counts such as `awayEvents: 2, awaySeconds: 41` and validates them leniently, since they come from the browser.
+
+**Tuning.** A problem must last 2 seconds before it counts, and two checks in a row must agree, so blinks, glances and single odd frames are ignored. Looking away needs 20 seconds for a minor flag and 90 for review, because people look away while they think. The thresholds are in `backend/src/interview/integrity.js` and `frontend/src/hooks/useProctoring.js`. Without WebGL the checks fall back to the CPU and run less often, to keep the page responsive.
+
 ## How CV and JD analysis works
 
 1. The file type is detected from the file's first bytes, not from its name. Anything other than PDF, DOCX, TXT, PNG, JPG or WEBP is rejected. The size limit is 5 MB.
@@ -210,7 +230,7 @@ The engine (`backend/src/interview/engine.js`) keeps one session per interview. 
 npm test --prefix backend
 ```
 
-There are 39 tests. They cover:
+There are 46 tests. They cover:
 
 1. The question planner.
 2. Provider request formats: Gemini's JSON output and image parts, Groq reasoning settings, Whisper upload.
@@ -219,6 +239,8 @@ There are 39 tests. They cover:
 5. The HTTP API with real PDF, DOCX, TXT and image uploads.
 6. File validation and size limits.
 7. That errors never leak internals.
+8. Integrity checks: lenient validation of the counts, the interviewer's reminder (and its limit of two), the debrief summary and levels, and that relaxed interviews ignore them.
+9. Long answers: 15,000 characters accepted, longer ones trimmed instead of rejected, and the debrief prompt kept within a fixed size.
 
 All tests use a fake AI, so they need no keys or network.
 
@@ -243,6 +265,9 @@ node backend/test/ui-server.js     # http://localhost:4173, fake interviewer
 | Gemini says "API key not valid" | Copy the key again from aistudio.google.com (API keys), with no spaces, and update it on Render. |
 | No voice button | Voice answers need Chrome or Edge, or the Groq key for the Whisper fallback. Typing always works. |
 | Microphone or camera blocked | Allow them in the browser's site settings. The site must be served over HTTPS (Render does this). |
+| The face check won't pass | Face a light source, keep your whole face in frame at arm's length, and avoid strong backlight. You can still join; the time is recorded. |
+| "Face checks unavailable in this browser" | The face model couldn't load (very old browser or blocked scripts). Window, full-screen and paste checks still run, and the debrief says face checks were not run. |
+| Full screen doesn't open on iPhone | iOS Safari doesn't allow full screen for web pages. The other checks still run. |
 | The interviewer sounds robotic | Voices come from your operating system and browser. Chrome and Edge have the most natural ones. |
 | "This interview session has expired" | The server restarted. Render's free plan sleeps after inactivity. Start a new interview. |
 | First request is slow on Render | The free plan cold-starts in about 30 to 60 seconds. A paid instance stays warm. |
@@ -256,6 +281,7 @@ node backend/test/ui-server.js     # http://localhost:4173, fake interviewer
 5. **Free-tier Gemini data use.** On Gemini's free tier, Google may use prompts (which include CV text) to improve its products. Enable billing on the AI Studio project if that matters for your users.
 6. **Company style comes from general knowledge.** There is no live company research.
 7. **Scanned PDFs are not OCR'd directly.** Upload a photo or screenshot of the page instead.
+8. **Integrity checks are a deterrent, not proof.** They run in the candidate's browser, so a determined person can get around them (a second device or someone off camera, for example), and lighting or glasses can cause false flags. Use the summary to decide what to ask about, not to make decisions on its own.
 
 ## Future improvements
 

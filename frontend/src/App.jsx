@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
 import { buildPanel } from './data/panel';
 import { useDocuments } from './hooks/useDocuments';
+import { useCamera } from './hooks/useMedia';
+import { exitFullscreen } from './hooks/useProctoring';
 import SetupScreen from './components/SetupScreen';
-import PreparingScreen from './components/PreparingScreen';
+import WaitingRoom from './components/WaitingRoom';
 import InterviewRoom from './components/InterviewRoom';
 import ReportScreen from './components/ReportScreen';
 
@@ -15,23 +17,24 @@ const initialSetup = () => ({
   difficulty: 'medium',
   length: 10,
   panel: buildPanel('mixed', 2),
+  proctored: true, // real interview conditions: camera on, full screen, tab switches and pasting noted
 });
 
 export default function App() {
-  const [screen, setScreen] = useState('setup'); // setup | preparing | interview | report
+  const [screen, setScreen] = useState('setup'); // setup | waiting | interview | report
   const [setup, setSetup] = useState(initialSetup);
   const [interview, setInterview] = useState(null);
   const [report, setReport] = useState(null);
   const [health, setHealth] = useState(null);
   const { docs, analyze, clear, ready } = useDocuments();
+  // One camera stream for the waiting room and the interview, so the browser doesn't ask twice.
+  const camera = useCamera();
 
   useEffect(() => {
     api.health().then(setHealth).catch(() => setHealth(null));
   }, []);
 
-  useEffect(() => {
-  window.scrollTo(0, 0);
-}, [screen]);
+  useEffect(() => window.scrollTo(0, 0), [screen]);
 
   const startInterview = useCallback((state) => {
     setInterview(state);
@@ -39,21 +42,29 @@ export default function App() {
   }, []);
 
   const finish = useCallback((result) => {
+    camera.stop();
+    exitFullscreen();
     setReport(result);
     setScreen('report');
-  }, []);
+  }, [camera.stop]);
+
+  function backToSetup() {
+    camera.stop();
+    setScreen('setup');
+  }
 
   function restart() {
+    camera.stop();
     setInterview(null);
     setReport(null);
     setScreen('setup');
   }
 
-  if (screen === 'preparing') {
-    return <PreparingScreen setup={setup} docs={docs} ready={ready} onReady={startInterview} onBack={() => setScreen('setup')} />;
+  if (screen === 'waiting') {
+    return <WaitingRoom setup={setup} docs={docs} ready={ready} camera={camera} onReady={startInterview} onBack={backToSetup} />;
   }
   if (screen === 'interview') {
-    return <InterviewRoom initialState={interview} setup={setup} health={health} onFinished={finish} />;
+    return <InterviewRoom initialState={interview} setup={setup} health={health} camera={camera} onFinished={finish} />;
   }
   if (screen === 'report') {
     return <ReportScreen report={report} onRestart={restart} />;
@@ -66,7 +77,7 @@ export default function App() {
       onAnalyze={analyze}
       onClear={clear}
       health={health}
-      onStart={() => setScreen('preparing')}
+      onStart={() => setScreen('waiting')}
     />
   );
 }

@@ -3,11 +3,13 @@ import { AppError } from '../errors.js';
 import { planPrompt, reportPrompt, turnPrompt } from '../ai/prompts.js';
 import { planSchema, reportSchema, turnSchema } from '../ai/schemas.js';
 import { ROLES, buildSlots, openingTurn } from './flow.js';
+import { describeIntegrity, reminderWorthy, summarizeIntegrity } from './integrity.js';
 
 const FOLLOW_UPS = { easy: 1, medium: 2, hard: 3 };
 const SESSION_TTL_MS = 3 * 60 * 60 * 1000;
 const MAX_SESSIONS = 500;
 const WEAK_VERDICTS = new Set(['weak', 'incorrect', 'vague', 'no_answer', 'off_topic']);
+const MAX_REMINDERS = 2; // a real interviewer mentions it once or twice, not after every answer
 
 // Sessions live in memory only: CV details are never written to disk and disappear
 // when the interview ends, expires, or the server restarts.
@@ -48,6 +50,7 @@ export function createInterviewEngine(ai, { random = Math.random } = {}) {
       weak: [],
       done: false,
       closing: null,
+      reminders: 0,
       startedAt: Date.now(),
       touchedAt: Date.now(),
     };
@@ -60,7 +63,7 @@ export function createInterviewEngine(ai, { random = Math.random } = {}) {
     return publicState(session);
   }
 
-  async function answer(id, { text, skipped }) {
+  async function answer(id, { text, skipped, integrity }) {
     const session = load(id);
     if (session.done) throw new AppError(409, 'This interview has already finished.');
     if (!skipped && !text) throw new AppError(400, 'Please give an answer or skip the question.');
@@ -69,17 +72,22 @@ export function createInterviewEngine(ai, { random = Math.random } = {}) {
     const slot = session.slots[session.slotIndex];
     const nextSlot = session.slots[session.slotIndex + 1];
     const allowedMoves = movesFor(session, slot, nextSlot);
+    const proctoring = session.setup.proctored && session.reminders < MAX_REMINDERS && reminderWorthy(integrity)
+      ? describeIntegrity(integrity)
+      : [];
 
     session.busy = true;
     try {
       const result = await ai.generate({
         route: 'live', label: 'turn',
-        ...turnPrompt({ session, turn, answer: text, skipped, slot, nextSlot, allowedMoves }),
+        ...turnPrompt({ session, turn, answer: text, skipped, slot, nextSlot, allowedMoves, proctoring }),
         schema: turnSchema(allowedMoves), maxTokens: 1800, timeoutMs: 25000, effort: 'medium',
       });
       // Only record the answer once the model has responded, so a failed call can simply be retried.
       turn.answer = skipped ? null : text;
       turn.assessment = result.assessment;
+      turn.integrity = session.setup.proctored ? integrity || null : null;
+      if (proctoring.length) session.reminders++;
       track(session, turn);
       applyMove(session, result);
     } finally {
@@ -88,10 +96,13 @@ export function createInterviewEngine(ai, { random = Math.random } = {}) {
     return publicState(session);
   }
 
-  async function end(id) {
+  async function end(id, finalIntegrity) {
     const session = load(id);
     const answered = session.turns.filter((t) => t.assessment);
     const meta = reportMeta(session, answered);
+    if (session.setup.proctored) {
+      meta.integrity = summarizeIntegrity({ turns: answered, finalTotals: finalIntegrity, faceChecks: finalIntegrity?.faceChecks });
+    }
 
     if (!answered.some((t) => t.answer)) {
       sessions.delete(id);
@@ -203,6 +214,7 @@ function buildReport(session, answered, report) {
       interviewer: t.interviewer,
       question: t.question,
       answer: t.answer,
+      integrityFlags: describeIntegrity(t.integrity),
       score: t.assessment.score,
       verdict: t.assessment.verdict,
       review: reviews.get(t.number) || null,

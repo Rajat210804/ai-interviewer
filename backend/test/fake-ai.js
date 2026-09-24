@@ -65,17 +65,17 @@ export function createFakeAI({ delayMs = 0, failLabels = [] } = {}) {
     return request.schema.parse(respond(request));
   }
 
-  function respond({ label, schema, user }) {
+  function respond({ label, schema, system, user }) {
     if (label === 'cv analysis') return SAMPLE_CV;
     if (label === 'jd analysis') return SAMPLE_JD;
     if (label === 'ocr') return { text: 'Job description: Data Analyst. Requirements: SQL, Python, Excel dashboards and stakeholder communication.' };
     if (label === 'plan') return SAMPLE_PLAN;
-    if (label === 'turn') return turn(schema.shape.move.options, user);
+    if (label === 'turn') return turn(schema.shape.move.options, user, system);
     if (label === 'report') return report(user);
     throw new Error(`fake AI has no response for ${label}`);
   }
 
-  function turn(allowedMoves, user) {
+  function turn(allowedMoves, user, system = '') {
     const answer = user.split("## Candidate's answer")[1] || '';
     const short = answer.replace(/[<>\n]/g, '').trim().length < 60;
     const move = short && allowedMoves.includes('follow_up') ? 'follow_up' : allowedMoves.find((m) => m !== 'follow_up');
@@ -89,7 +89,8 @@ export function createFakeAI({ delayMs = 0, failLabels = [] } = {}) {
         topics: [short ? 'Vague answer' : 'SQL'],
       },
       move,
-      reaction: move === 'close' ? 'Most teams here work in two-week sprints, but your recruiter can share specifics.' : short ? "That's still quite general." : 'Okay.',
+      reaction: `${system.includes('Proctoring during this answer') ? 'Before we go on, please stay on this screen. ' : ''}${
+        move === 'close' ? 'Most teams here work in two-week sprints, but your recruiter can share specifics.' : short ? "That's still quite general." : 'Okay.'}`,
       question: QUESTIONS[move],
       category: 'technical',
       topic: move === 'follow_up' ? 'Measuring impact' : 'SQL ranking',

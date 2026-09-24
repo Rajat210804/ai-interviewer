@@ -41,8 +41,9 @@ export const api = {
   },
 
   startInterview: (payload) => request('/interview/start', { body: payload, timeoutMs: 100000 }),
+  // answer: { text, skipped, integrity? }. Integrity is a set of counts from the browser checks, never video.
   answer: (sessionId, answer) => request(`/interview/${sessionId}/answer`, { body: answer, timeoutMs: 60000 }),
-  endInterview: (sessionId) => request(`/interview/${sessionId}/end`, { body: {}, timeoutMs: 250000 }),
+  endInterview: (sessionId, integrity) => request(`/interview/${sessionId}/end`, { body: integrity ? { integrity } : {}, timeoutMs: 250000 }),
 
   transcribe(blob) {
     // Whisper decodes by file extension, and Safari records mp4 rather than webm.

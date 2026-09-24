@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, ChevronDown, CircleAlert, CircleCheck, Plus, Printer } from 'lucide-react';
+import { AlertTriangle, BookOpen, ChevronDown, CircleAlert, CircleCheck, Plus, Printer, ShieldCheck } from 'lucide-react';
 import { BreakdownBars, QuestionScores, ScoreRing } from './ReportCharts';
 import { Button } from './ui';
 import { CATEGORY_LABEL, DIFFICULTIES, INTERVIEW_TYPES } from '../data/panel';
@@ -13,6 +13,12 @@ const VERDICTS = {
   incorrect: { label: 'Incorrect', color: 'bg-critical' },
   no_answer: { label: 'Skipped', color: 'bg-serious' },
   off_topic: { label: 'Off topic', color: 'bg-serious' },
+};
+
+const INTEGRITY_LEVELS = {
+  clean: { label: 'No concerns', color: 'bg-good', text: 'Nothing unusual was detected during the interview.' },
+  minor: { label: 'Minor flags', color: 'bg-warning', text: 'A few events were noted. On their own they are usually harmless.' },
+  review: { label: 'Needs review', color: 'bg-critical', text: 'Several events were noted that a real interviewer would ask about.' },
 };
 
 const Card = ({ title, children, className = '' }) => (
@@ -97,6 +103,8 @@ export default function ReportScreen({ report, onRestart }) {
         </Card>
       </div>
 
+      {report.integrity && <IntegrityCard integrity={report.integrity} />}
+
       <Card title="Score by question" className="mt-5">
         <QuestionScores questions={report.questions} />
       </Card>
@@ -172,10 +180,56 @@ export default function ReportScreen({ report, onRestart }) {
   );
 }
 
+function IntegrityCard({ integrity }) {
+  const level = INTEGRITY_LEVELS[integrity.level] || INTEGRITY_LEVELS.clean;
+  const t = integrity.totals;
+  const times = (n) => `${n} ${n === 1 ? 'time' : 'times'}`;
+  const metrics = [
+    ['Left the interview window', t.awayEvents ? `${times(t.awayEvents)} · ${t.awaySeconds} s` : 'Never'],
+    ['Face not visible', integrity.faceChecks || t.noFaceSeconds ? `${t.noFaceSeconds} s` : 'Not checked'],
+    ['Looking away from the screen', integrity.faceChecks ? `${t.lookAwaySeconds} s` : 'Not checked'],
+    ['Another person in view', integrity.faceChecks ? (t.multipleFaceEvents ? times(t.multipleFaceEvents) : 'Never') : 'Not checked'],
+    ['Paste attempts', t.pasteAttempts ? times(t.pasteAttempts) : 'None'],
+    ['Left full screen', t.fullscreenExits ? times(t.fullscreenExits) : 'Never'],
+  ];
+
+  return (
+    <Card className="mt-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-ink"><ShieldCheck className="size-4 text-accent" aria-hidden /> Interview integrity</h2>
+          <p className="mt-1 text-sm text-ink-soft">{level.text}</p>
+        </div>
+        <span className="inline-flex items-center gap-2 rounded-full border border-line bg-raised px-3 py-1 text-xs font-medium text-ink">
+          <span className={`size-2 rounded-full ${level.color}`} aria-hidden /> {level.label}
+        </span>
+      </div>
+      <dl className="mt-5 grid gap-x-8 gap-y-2.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+        {metrics.map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-3 border-b border-line/60 pb-2">
+            <dt className="text-muted">{label}</dt>
+            <dd className="tabular-nums text-ink-soft">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {integrity.flaggedQuestions.length > 0 && (
+        <p className="mt-4 text-sm text-ink-soft">
+          Flagged during {integrity.flaggedQuestions.map((n) => `Q${n}`).join(', ')}. The notes are in the question review below.
+        </p>
+      )}
+      <p className="mt-4 text-xs leading-relaxed text-muted">
+        {integrity.faceChecks ? '' : 'Face checks could not run in this browser, so only window, full-screen and paste events were tracked. '}
+        Automated checks can be wrong: poor lighting, glasses, a second monitor or someone walking past can all trigger a flag. Treat these as questions to ask, not proof.
+      </p>
+    </Card>
+  );
+}
+
 function QuestionReview({ question: q, interviewer, forceOpen }) {
   const [expanded, setExpanded] = useState(false);
   const open = expanded || forceOpen;
   const verdict = VERDICTS[q.verdict] || VERDICTS.adequate;
+  const flags = q.integrityFlags || [];
   const details = [
     ['What worked', q.review?.good],
     ['What was missing', q.review?.missing],
@@ -194,6 +248,11 @@ function QuestionReview({ question: q, interviewer, forceOpen }) {
           <p className="mt-1 text-sm leading-relaxed text-ink">{q.question}</p>
         </div>
         <span className="flex shrink-0 items-center gap-2 text-xs text-ink-soft">
+          {flags.length > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 px-2 py-0.5 text-[11px] text-ink-soft" title={flags.join('; ')}>
+              <AlertTriangle className="size-3 text-warning" aria-hidden /> Flagged
+            </span>
+          )}
           <span className={`size-2 rounded-full ${verdict.color}`} aria-hidden />
           {verdict.label}
           <span className="tabular-nums text-muted">{q.score}/10</span>
@@ -205,8 +264,16 @@ function QuestionReview({ question: q, interviewer, forceOpen }) {
         <div className="space-y-4 border-t border-line px-5 py-5 sm:pl-[4.25rem]">
           <div>
             <p className="text-xs font-medium uppercase tracking-wider text-muted">Your answer</p>
-            <p className="mt-1.5 text-sm leading-relaxed text-ink-soft">{q.answer || <em className="text-muted">Skipped</em>}</p>
+            <p className="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-ink-soft">{q.answer || <em className="text-muted">Skipped</em>}</p>
           </div>
+          {flags.length > 0 && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-muted">Integrity notes</p>
+              <ul className="mt-1.5 space-y-1 text-sm leading-relaxed text-ink-soft">
+                {flags.map((flag) => <li key={flag} className="flex gap-2"><AlertTriangle className="mt-1 size-3 shrink-0 text-warning" aria-hidden />{flag}</li>)}
+              </ul>
+            </div>
+          )}
           {details.map(([label, text]) => (
             <div key={label}>
               <p className="text-xs font-medium uppercase tracking-wider text-muted">{label}</p>

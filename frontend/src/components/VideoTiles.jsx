@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Info, Mic, VideoOff } from 'lucide-react';
+import { AlertTriangle, Info, Mic, VideoOff } from 'lucide-react';
 import { Portrait } from './ui';
 
 // The label stays white for contrast; only the icon carries the colour.
@@ -58,11 +58,22 @@ export function InterviewerTile({ person, state, size = 'large' }) {
   );
 }
 
-export function CandidateTile({ stream, listening, name, cameraError }) {
-  const video = useRef(null);
+// Shown on the self-view in a proctored interview; a healthy check stays quiet.
+const FACE_CHIP = {
+  loading: { label: 'Starting checks…', warn: false },
+  no_face: { label: 'Face not visible', warn: true },
+  looking_away: { label: 'Looking away', warn: true },
+  multiple_faces: { label: 'Another person in view', warn: true },
+  no_camera: { label: 'Camera off', warn: true },
+};
+
+export function CandidateTile({ stream, listening, name, cameraError, videoRef, faceStatus }) {
+  const ownRef = useRef(null);
+  const video = videoRef || ownRef;
   useEffect(() => {
     if (video.current) video.current.srcObject = stream;
-  }, [stream]);
+  }, [stream, video]);
+  const chip = faceStatus && FACE_CHIP[faceStatus];
 
   return (
     <div className={`relative aspect-video w-44 shrink-0 overflow-hidden rounded-2xl border bg-raised lg:w-full ${listening ? 'border-good/60' : 'border-line'}`}>
@@ -79,6 +90,11 @@ export function CandidateTile({ stream, listening, name, cameraError }) {
             </p>
           </div>
         </div>
+      )}
+      {chip && (
+        <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur">
+          {chip.warn && <AlertTriangle className="size-3 text-warning" aria-hidden />} {chip.label}
+        </span>
       )}
       <div className="absolute bottom-0 left-0 flex items-center gap-1.5 p-2.5">
         {listening && <Mic className="size-3.5 text-good" aria-label="Microphone on" />}
