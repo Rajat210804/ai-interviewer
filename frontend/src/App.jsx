@@ -34,7 +34,9 @@ export default function App() {
     api.health().then(setHealth).catch(() => setHealth(null));
   }, []);
 
-  useEffect(() => window.scrollTo(0, 0), [screen]);
+  useEffect(() => {
+  window.scrollTo(0, 0);
+}, [screen]);
 
   const startInterview = useCallback((state) => {
     setInterview(state);
