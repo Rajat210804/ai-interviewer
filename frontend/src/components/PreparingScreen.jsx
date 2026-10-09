@@ -1,101 +1,128 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { ArrowLeft, Check, RotateCcw } from 'lucide-react';
-import { api } from '../api';
+import { useInterviewPreparation } from '../hooks/useInterviewPreparation';
 import { Button, ErrorBanner, Portrait, Spinner } from './ui';
 import { ROLE_INFO, avatarById } from '../data/panel';
 
-export default function PreparingScreen({ setup, docs, ready, onReady, onBack }) {
-  const [stage, setStage] = useState('documents'); // documents -> planning -> done
-  const [error, setError] = useState('');
-  const [attempt, setAttempt] = useState(0);
-  const started = useRef(-1);
-
+export default function PreparingScreen({
+  setup,
+  docs,
+  ready,
+  onReady,
+  onBack,
+}) {
+  const { stage, interview, error, retry } = useInterviewPreparation(
+    setup,
+    ready,
+  );
+  const delivered = useRef(null);
   useEffect(() => {
-    if (started.current === attempt) return; // React StrictMode runs effects twice in development
-    started.current = attempt;
-
-    (async () => {
-      try {
-        setError('');
-        setStage('documents');
-        const { cv, jd } = await ready().catch(() => {
-          throw new Error("One of your documents couldn't be read. Go back to replace or remove it.");
-        });
-
-        setStage('planning');
-        const state = await api.startInterview({
-          setup: {
-            company: setup.company.trim(),
-            role: setup.role.trim(),
-            candidateName: setup.candidateName.trim(),
-            type: setup.type,
-            difficulty: setup.difficulty,
-            length: setup.length,
-            panel: setup.panel.map((seat) => ({ ...seat, name: avatarById(seat.avatarId).name })),
-          },
-          cv,
-          jd,
-        });
-        setStage('done');
-        setTimeout(() => onReady(state), 700);
-      } catch (err) {
-        setError(err.message);
-      }
-    })();
-  }, [attempt, ready, setup, onReady]);
+    if (interview && delivered.current !== interview) {
+      delivered.current = interview;
+      onReady(interview);
+    }
+  }, [interview, onReady]);
 
   const steps = [
-    docs.cv.status !== 'empty' && { id: 'documents', label: 'Reading your CV' },
-    docs.jd.status !== 'empty' && { id: 'documents', label: 'Reading the job description' },
-    { id: 'planning', label: 'Matching your profile to the role and planning questions' },
-    { id: 'done', label: 'Briefing the panel' },
-  ].filter(Boolean);
+    {
+      id: 'documents',
+      label:
+        docs.cv.status !== 'empty' || docs.jd.status !== 'empty'
+          ? 'Read your documents'
+          : 'Confirm the interview settings',
+    },
+    { id: 'planning', label: 'Prepare questions and brief your panel' },
+    { id: 'done', label: 'Ready to begin' },
+  ];
   const order = ['documents', 'planning', 'done'];
-  const status = (stepId) => {
-    const current = order.indexOf(stage);
-    const index = order.indexOf(stepId);
-    if (index < current || stage === 'done') return 'done';
-    return index === current ? (error ? 'failed' : 'active') : 'waiting';
-  };
+  const status = (id) =>
+    order.indexOf(id) < order.indexOf(stage) || stage === 'done'
+      ? 'done'
+      : id === stage
+        ? error
+          ? 'failed'
+          : 'active'
+        : 'waiting';
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-4 py-12">
-      <div className="flex justify-center -space-x-4">
-        {setup.panel.map((seat) => (
-          <Portrait key={seat.role} avatar={avatarById(seat.avatarId)} className="size-20 rounded-full ring-4 ring-canvas" />
-        ))}
-      </div>
-      <h1 className="mt-6 text-center text-2xl font-semibold text-ink">Getting your panel ready</h1>
-      <p className="mt-2 text-center text-sm text-muted">
-        {setup.panel.map((seat) => `${avatarById(seat.avatarId).name.split(' ')[0]} (${ROLE_INFO[seat.role].title})`).join(', ')}
-      </p>
-
-      <ol className="mt-10 space-y-3">
-        {steps.map((step) => {
-          const state = status(step.id);
-          return (
-            <li key={step.label} className="flex items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3">
-              <span className="grid size-5 place-items-center">
-                {state === 'done' && <Check className="size-4 text-good" />}
-                {state === 'active' && <Spinner className="size-4 text-accent" />}
-                {state === 'waiting' && <span className="size-1.5 rounded-full bg-line-strong" />}
-                {state === 'failed' && <span className="size-2 rounded-full bg-critical" />}
-              </span>
-              <span className={`text-sm ${state === 'waiting' ? 'text-muted' : 'text-ink'}`}>{step.label}</span>
+    <div className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-4 py-12">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="mb-6 self-start"
+        onClick={onBack}
+      >
+        <ArrowLeft className="size-4" aria-hidden />
+        Back to setup
+      </Button>
+      <section className="rounded-xl border border-line bg-surface p-6">
+        <p className="text-xs font-medium uppercase tracking-widest text-accent">
+          Interview preparation
+        </p>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-ink">
+          Your panel is getting ready.
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          Preparing questions for {setup.role.trim()}. Keep this page open while
+          the panel is briefed.
+        </p>
+        <ul className="mt-6 space-y-3">
+          {setup.panel.map((seat) => (
+            <li key={seat.role} className="flex items-center gap-3">
+              <Portrait
+                avatar={avatarById(seat.avatarId)}
+                className="size-10 rounded-lg"
+              />
+              <div>
+                <p className="text-sm text-ink">
+                  {avatarById(seat.avatarId).name}
+                </p>
+                <p className="mt-0.5 text-xs text-muted">
+                  {ROLE_INFO[seat.role].title}
+                </p>
+              </div>
             </li>
-          );
-        })}
-      </ol>
-
-      {error && (
-        <div className="mt-6 space-y-3">
-          <ErrorBanner message={error} />
-          <div className="flex justify-center gap-2">
-            <Button variant="ghost" onClick={onBack}><ArrowLeft className="size-4" /> Back to setup</Button>
-            <Button variant="primary" onClick={() => setAttempt((n) => n + 1)}><RotateCcw className="size-4" /> Try again</Button>
+          ))}
+        </ul>
+        <ol
+          className="mt-6 space-y-3 border-t border-line pt-5"
+          aria-live="polite"
+        >
+          {steps.map((step) => {
+            const state = status(step.id);
+            return (
+              <li key={step.id} className="flex items-center gap-3">
+                <span className="grid size-4 place-items-center">
+                  {state === 'done' ? (
+                    <Check className="size-4 text-good" />
+                  ) : state === 'active' ? (
+                    <Spinner className="size-4 text-accent" />
+                  ) : (
+                    <span
+                      className={`size-1.5 rounded-full ${state === 'failed' ? 'bg-critical' : 'bg-line-strong'}`}
+                    />
+                  )}
+                </span>
+                <span
+                  className={`text-sm ${state === 'waiting' ? 'text-muted' : 'text-ink-soft'}`}
+                >
+                  {step.label}
+                </span>
+                <span className="sr-only">{state}</span>
+              </li>
+            );
+          })}
+        </ol>
+        {error && (
+          <div className="mt-6 space-y-3">
+            <ErrorBanner message={error} />
+            <Button variant="primary" className="w-full" onClick={retry}>
+              <RotateCcw className="size-4" aria-hidden />
+              Retry preparation
+            </Button>
           </div>
-        </div>
-      )}
+        )}
+      </section>
     </div>
   );
 }

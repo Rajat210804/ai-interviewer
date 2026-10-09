@@ -9,7 +9,11 @@ export class AppError extends Error {
 
 export function errorHandler(err, req, res, _next) {
   if (err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ error: 'That file is too large. Please upload a file under 5 MB.' });
+    const audio = req.path.startsWith('/api/transcribe');
+    return res.status(413).json({ error: audio ? 'That recording is too large. Please keep it under 10 MB.' : 'That file is too large. Please upload a file under 5 MB.' });
+  }
+  if (typeof err.code === 'string' && err.code.startsWith('LIMIT_')) {
+    return res.status(400).json({ error: 'The upload contains unexpected files or too many fields.' });
   }
   if (err instanceof AppError) {
     if (err.status >= 500) console.error(`[${req.method} ${req.path}]`, err.message);

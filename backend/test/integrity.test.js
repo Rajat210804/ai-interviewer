@@ -5,6 +5,7 @@ import { createInterviewEngine } from '../src/interview/engine.js';
 import { describeIntegrity, integritySchema, summarizeIntegrity } from '../src/interview/integrity.js';
 import { reportPrompt } from '../src/ai/prompts.js';
 import { createFakeAI } from './fake-ai.js';
+import { createProctoringEngine } from '../../frontend/src/proctoring/engine.js';
 
 const setup = (overrides = {}) => ({
   company: 'Acme', role: 'Data Analyst', candidateName: '', type: 'technical', difficulty: 'easy', length: 5,
@@ -15,6 +16,24 @@ const setup = (overrides = {}) => ({
 const ANSWER = 'I would partition by region, rank products by total revenue with a window function, and keep the top three rows.';
 const clean = { awayEvents: 0, awaySeconds: 0, noFaceSeconds: 0, lookAwaySeconds: 0, multipleFaceEvents: 0, pasteAttempts: 0, fullscreenExits: 0 };
 
+test('real browser event snapshots survive API validation and report aggregation', () => {
+  let at = Date.parse('2026-10-09T12:00:00Z');
+  const browser = createProctoringEngine({ now: () => at });
+  browser.record('FULLSCREEN_EXIT', { source: 'fullscreenchange' });
+  const first = integritySchema.parse(browser.snapshot());
+  assert.equal(first.events.length, 1);
+  assert.equal(first.events[0].id, '1');
+  assert.equal(first.events[0].type, 'FULLSCREEN_EXIT');
+  at += 20000;
+  browser.record('COPY_ATTEMPT', { source: 'copy' });
+  const final = integritySchema.parse(browser.snapshot());
+  const report = summarizeIntegrity({ turns: [{ number: 1, integrity: first }], finalTotals: final });
+  assert.equal(report.events.length, 2, 'same event across turn and final snapshots is counted once');
+  assert.equal(report.severityCounts.WARNING, 1);
+  assert.equal(report.severityCounts.INFO, 1);
+  assert.equal(report.totals.fullscreenExits, 1);
+});
+
 test('integrity counts are validated leniently: bad values become 0, unknown keys are dropped', () => {
   const parsed = integritySchema.parse({ awayEvents: 2, awaySeconds: -5, pasteAttempts: 'lots', hacked: true });
   assert.equal(parsed.awayEvents, 2);
@@ -22,6 +41,49 @@ test('integrity counts are validated leniently: bad values become 0, unknown key
   assert.equal(parsed.pasteAttempts, 0);
   assert.equal(parsed.noFaceSeconds, 0);
   assert.ok(!('hacked' in parsed));
+});
+
+test('monitoring metadata is bounded, sanitized and preserves valid events beside malformed entries', () => {
+  const parsed = integritySchema.parse({
+    phoneEvents: 2, phoneSeconds: 8, suspicionScore: 900,
+    coverage: {activeMs: 2_400_000, faceAvailableMs: 1_800_000, objectAvailableMs: 800_000, faceSamples: 600, objectSamples: 120},
+    events: [
+      {id:'phone-1', type:'PHONE_DETECTED',severity:'SUSPICIOUS',confidence:0.91,timestamp:'2026-10-06T12:00:00.000Z',duration:4000,occurrences:1,message:'Potential phone detected',frames:['private'],box:[1,2,3,4]},
+      {id:'bad',type:'UNKNOWN',severity:'CRITICAL',timestamp:'invalid'},
+    ],
+    frame: 'private',
+  });
+  assert.equal(parsed.phoneEvents, 2);
+  assert.equal(parsed.suspicionScore, 0);
+  assert.equal(parsed.coverage.activeMs, 2_400_000, 'normal 40-minute sessions retain coverage');
+  assert.equal(parsed.events.length, 1);
+  assert.ok(!('frames' in parsed.events[0]));
+  assert.ok(!('box' in parsed.events[0]));
+  assert.ok(!('frame' in parsed));
+});
+
+test('phone events, coverage and severity survive report aggregation without double-counting event ids', () => {
+  const event = {id:'p1',type:'PHONE_DETECTED',severity:'SUSPICIOUS',confidence:0.91,timestamp:'2026-10-06T12:00:00.000Z',duration:4000,occurrences:1,message:'Potential mobile phone detected'};
+  const turns = [{number:1,integrity:{phoneEvents:1,phoneSeconds:4,faceChecks:true,phoneChecks:true,events:[event]}}];
+  const summary = summarizeIntegrity({turns,finalTotals:{phoneEvents:3,phoneSeconds:18,phoneChecks:true,events:[{...event,severity:'SERIOUS_VIOLATION',duration:18000,occurrences:3}],coverage:{activeMs:10000,faceAvailableMs:5000,objectAvailableMs:4000,faceSamples:4,objectSamples:2}}});
+  assert.equal(summary.level, 'review');
+  assert.equal(summary.events.length, 1);
+  assert.equal(summary.severityCounts.SERIOUS_VIOLATION, 1);
+  assert.equal(summary.phoneChecks, true);
+  assert.equal(summary.faceChecks, true);
+  assert.equal(summary.totals.phoneEvents, 3);
+  assert.equal(summary.coverage.objectSamples, 2);
+  assert.deepEqual(summary.flaggedQuestions, [1]);
+  assert.match(summary.notes.join(' '), /Potential mobile phone/);
+});
+
+test('device and model unavailability are coverage failures, not evidence of cheating', () => {
+  const summary = summarizeIntegrity({turns:[],finalTotals:{cameraInterruptions:2,cameraUnavailableSeconds:30,visionUnavailableSeconds:30,objectUnavailableSeconds:30}});
+  assert.equal(summary.level, 'clean');
+  assert.equal(summary.faceChecks, false);
+  assert.equal(summary.phoneChecks, false);
+  assert.match(summary.notes.join(' '), /device or permission issue/);
+  assert.equal(summary.suspicionScore, 0);
 });
 
 test('short glances are not flagged, real events are described in plain words', () => {
@@ -89,12 +151,15 @@ test('the debrief prompt keeps very long answers within a fixed budget', () => {
     plan: { strong_matches: [], partial_matches: [], missing_skills: [] },
     panel: [{ id: 'i1', role: 'tech', name: 'Daniel' }],
   };
-  const { user } = reportPrompt(session, Array.from({ length: 12 }, (_, i) => turn(i + 1)));
+  const { user, evaluationCoverage } = reportPrompt(session, Array.from({ length: 12 }, (_, i) => turn(i + 1)));
   assert.ok(user.length < 32000, `report prompt is ${user.length} characters`);
-  assert.match(user, /answer continues, cut here for length/);
+  assert.match(user, /Remaining text omitted from AI context/);
+  assert.equal(evaluationCoverage.contextLimited, true);
+  assert.equal(evaluationCoverage.answerCharacters, long.length * 12);
+  assert.ok(evaluationCoverage.contextCharacters <= evaluationCoverage.answerContextBudget);
 });
 
-test('answers up to 15,000 characters are accepted over HTTP, and longer ones are trimmed rather than rejected', async () => {
+test('direct answers beyond the former 15,000-character limit retain their complete text', async () => {
   const server = createApp({ ai: createFakeAI(), requestsPerMinute: 1000 }).listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   const base = `http://127.0.0.1:${server.address().port}/api`;
@@ -114,8 +179,8 @@ test('answers up to 15,000 characters are accepted over HTTP, and longer ones ar
     while (!state.done) state = (await post(`/interview/${state.sessionId}/answer`, { text: ANSWER, integrity: clean })).body;
     const report = await post(`/interview/${state.sessionId}/end`, { integrity: { ...clean, pasteAttempts: 1, faceChecks: true } });
     assert.equal(report.status, 200);
-    assert.equal(report.body.questions[0].answer.length, long.trim().length);
-    assert.equal(report.body.questions[1].answer.length, 15000);
+    assert.equal(report.body.questions[0].answer, long);
+    assert.equal(report.body.questions[1].answer, 'a'.repeat(20000));
     assert.equal(report.body.integrity.level, 'minor');
   } finally {
     server.close();

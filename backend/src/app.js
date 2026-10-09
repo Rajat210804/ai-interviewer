@@ -11,7 +11,7 @@ import { transcribeRouter } from './routes/transcribe.js';
 
 const frontendDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
 
-export function createApp({ ai, requestsPerMinute = 60 }) {
+export function createApp({ ai, requestsPerMinute = 60, answerPartsPerMinute = 120, interviewEngineOptions }) {
   const app = express();
   app.set('trust proxy', 1); // Render terminates TLS in front of the app
   app.disable('x-powered-by');
@@ -35,18 +35,26 @@ export function createApp({ ai, requestsPerMinute = 60 }) {
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     message: { error: 'Too many requests. Please wait a minute and try again.' },
+    // Large answers use several small requests. They have a separate transfer
+    // rate limit rather than spending the allowance for AI actions.
+    skip: (req) => req.method === 'POST' && /^\/interview\/[^/]+\/answer-parts\/?$/.test(req.path),
+  }));
+  app.use('/api/interview/:id/answer-parts', rateLimit({
+    windowMs: 60_000, limit: answerPartsPerMinute, standardHeaders: 'draft-8', legacyHeaders: false,
+    message: { error: 'Answer upload paused briefly. Please wait a minute and retry; accepted parts are retained.' },
   }));
   app.use(express.json({ limit: '300kb' }));
 
   app.get('/api/health', (req, res) => res.json({ ok: true, providers: ai.status() }));
   app.use('/api/documents', documentsRouter(ai));
-  app.use('/api/interview', interviewRouter(ai));
+  app.use('/api/interview', interviewRouter(ai, interviewEngineOptions));
   app.use('/api/transcribe', transcribeRouter(ai));
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
   // In production the backend also serves the built React app.
   if (fs.existsSync(frontendDist)) {
     app.use(express.static(frontendDist, { index: false, maxAge: '1d' }));
+    app.use(['/models', '/assets'], (req, res) => res.status(404).json({ error: 'The requested asset is unavailable.' }));
     app.get(/.*/, (req, res) => res.sendFile(path.join(frontendDist, 'index.html')));
   }
 

@@ -1,0 +1,75 @@
+{
+  "license": {
+    "name": "Unsplash License",
+    "url": "https://unsplash.com/license"
+  },
+  "description": "The same stock portraits previously loaded from Unsplash, stored locally to avoid external runtime image requests. Persona names are fictional and do not identify the people in the photographs.",
+  "files": [
+    {
+      "file": "young-woman.jpg",
+      "persona": "Maya Collins",
+      "source": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=900&h=900&fit=crop&crop=faces&q=80&fm=jpg",
+      "bytes": 74833,
+      "dimensions": [
+        900,
+        900
+      ],
+      "sha256": "ac3ab96efbbbe65d4422f29bf336ac27fa783a68a81063539fde363cb0307203"
+    },
+    {
+      "file": "professional-woman.jpg",
+      "persona": "Rachel Moore",
+      "source": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=900&h=900&fit=crop&crop=faces&q=80&fm=jpg",
+      "bytes": 105024,
+      "dimensions": [
+        900,
+        900
+      ],
+      "sha256": "c0d9d235c776c1d2a6a01ad0e157803bcdfebb5dd16b6613f5c92a16c1baebed"
+    },
+    {
+      "file": "professional-man.jpg",
+      "persona": "Daniel Hayes",
+      "source": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=900&h=900&fit=crop&crop=faces&q=80&fm=jpg",
+      "bytes": 67637,
+      "dimensions": [
+        900,
+        900
+      ],
+      "sha256": "994162bb447ab3c7a6080dce5b85db16f0122638d74a0c30970572e35eeccae4"
+    },
+    {
+      "file": "young-man.jpg",
+      "persona": "Ethan Brooks",
+      "source": "https://images.unsplash.com/photo-1519244703995-f4e0f30006d5?w=900&h=900&fit=crop&crop=faces&q=80&fm=jpg",
+      "bytes": 146169,
+      "dimensions": [
+        900,
+        900
+      ],
+      "sha256": "9306978e89da51b71468c12edf949b4c7e7ca7a0115a65ad3a0b65b7bff987b7"
+    },
+    {
+      "file": "senior-man.jpg",
+      "persona": "James Carter",
+      "source": "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=900&h=900&fit=crop&crop=faces&q=80&fm=jpg",
+      "bytes": 81989,
+      "dimensions": [
+        900,
+        900
+      ],
+      "sha256": "63295bd0ff064c33666fcdb19ace59f51c43694ab306d8902fc1f197e5d558bc"
+    },
+    {
+      "file": "woman-lead.jpg",
+      "persona": "Nina Shah",
+      "source": "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=900&h=900&fit=crop&crop=faces&q=80&fm=jpg",
+      "bytes": 85716,
+      "dimensions": [
+        900,
+        900
+      ],
+      "sha256": "7de249ad262a4b37e72daf46ad191d607b9d50507634a55e7dec0972a9c9031c"
+    }
+  ]
+}

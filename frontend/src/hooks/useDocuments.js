@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState } from 'react';
-import { api } from '../api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from '../api.js';
 
 const EMPTY = { status: 'empty' };
 
@@ -8,20 +8,35 @@ const EMPTY = { status: 'empty' };
 export function useDocuments() {
   const [docs, setDocs] = useState({ cv: EMPTY, jd: EMPTY });
   const jobs = useRef({});
+  const controllers = useRef({});
+  const mounted = useRef(true);
 
-  const update = (kind, value) => setDocs((current) => ({ ...current, [kind]: value }));
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      Object.values(controllers.current).forEach((controller) => controller.abort());
+    };
+  }, []);
+
+  const update = (kind, value) => {
+    if (mounted.current) setDocs((current) => ({ ...current, [kind]: value }));
+  };
 
   const analyze = useCallback((kind, input) => {
+    controllers.current[kind]?.abort();
+    const controller = new AbortController();
+    controllers.current[kind] = controller;
     const label = input.file ? input.file.name : 'Pasted text';
     update(kind, { status: 'analyzing', label });
 
-    const job = api.analyzeDocument(kind, input).then(
+    const job = api.analyzeDocument(kind, input, { signal: controller.signal }).then(
       (result) => {
         if (jobs.current[kind] === job) update(kind, { status: 'ready', label, ...result });
         return result.profile;
       },
       (err) => {
-        if (jobs.current[kind] === job) update(kind, { status: 'error', label, error: err.message, input });
+        if (jobs.current[kind] === job && err.name !== 'AbortError') update(kind, { status: 'error', label, error: err.message, input });
         throw err;
       },
     );
@@ -30,6 +45,8 @@ export function useDocuments() {
   }, []);
 
   const clear = useCallback((kind) => {
+    controllers.current[kind]?.abort();
+    delete controllers.current[kind];
     jobs.current[kind] = null;
     update(kind, EMPTY);
   }, []);

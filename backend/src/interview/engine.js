@@ -10,23 +10,31 @@ const SESSION_TTL_MS = 3 * 60 * 60 * 1000;
 const MAX_SESSIONS = 500;
 const WEAK_VERDICTS = new Set(['weak', 'incorrect', 'vague', 'no_answer', 'off_topic']);
 const MAX_REMINDERS = 2; // a real interviewer mentions it once or twice, not after every answer
+const REPORT_RETRY_MS = 5 * 60 * 1000;
 
 // Sessions live in memory only: CV details are never written to disk and disappear
 // when the interview ends, expires, or the server restarts.
-export function createInterviewEngine(ai, { random = Math.random } = {}) {
+export function createInterviewEngine(ai, { random = Math.random, now = () => Date.now(), sessionTtlMs = SESSION_TTL_MS } = {}) {
   const sessions = new Map();
+  const completedReports = new Map();
 
   setInterval(() => {
     for (const [id, session] of sessions) {
-      if (Date.now() - session.touchedAt > SESSION_TTL_MS) sessions.delete(id);
+      if (!session.busy && now() - session.touchedAt > sessionTtlMs) sessions.delete(id);
+    }
+    for (const [id, result] of completedReports) {
+      if (result.expiresAt <= now()) completedReports.delete(id);
     }
   }, 10 * 60 * 1000).unref();
 
-  function load(id) {
+  function load(id, { allowBusy = false } = {}) {
     const session = sessions.get(id);
-    if (!session) throw new AppError(404, 'This interview session has expired. Please start a new interview.');
-    if (session.busy) throw new AppError(409, 'The interviewer is still responding. Please wait a moment.');
-    session.touchedAt = Date.now();
+    if (!session || (!session.busy && now() - session.touchedAt > sessionTtlMs)) {
+      sessions.delete(id);
+      throw new AppError(404, 'This interview session has expired. Please start a new interview.');
+    }
+    if (session.busy && !allowBusy) throw new AppError(409, 'The interviewer is still responding. Please wait a moment.');
+    session.touchedAt = now();
     return session;
   }
 
@@ -51,8 +59,9 @@ export function createInterviewEngine(ai, { random = Math.random } = {}) {
       done: false,
       closing: null,
       reminders: 0,
-      startedAt: Date.now(),
-      touchedAt: Date.now(),
+      startedAt: now(),
+      touchedAt: now(),
+      answerUpload: null,
     };
 
     const firstName = (setup.candidateName || cv?.name || '').trim().split(/\s+/)[0];
@@ -63,10 +72,73 @@ export function createInterviewEngine(ai, { random = Math.random } = {}) {
     return publicState(session);
   }
 
-  async function answer(id, { text, skipped, integrity }) {
+  function keepAlive(id) {
+    load(id, { allowBusy: true });
+    return { ok: true };
+  }
+
+  const fingerprint = (text) => crypto.createHash('sha256').update(text, 'utf16le').digest('hex');
+  function answerPart(id, { uploadId, expectedTurn, index, text }) {
     const session = load(id);
+    const previous = session.turns.find((turn) => turn.number === expectedTurn);
+    if (previous?.assessment) {
+      const part = previous.answerUpload?.parts[index];
+      if (previous.answerUpload?.uploadId === uploadId && part?.hash === fingerprint(text) && part.characters === text.length) {
+        return { uploadId, expectedTurn, index, nextIndex: previous.answerUpload.parts.length, acceptedCharacters: previous.answer.length, duplicate: true };
+      }
+      throw new AppError(409, 'That question has already been answered. Please continue with the current question.');
+    }
+    if (session.done || expectedTurn !== session.turns.at(-1)?.number) {
+      throw new AppError(409, 'The interview has moved to a different question. Please refresh your interview state.');
+    }
+    let upload = session.answerUpload;
+    if (!upload || upload.uploadId !== uploadId) {
+      if (index !== 0) throw new AppError(409, 'Start this answer upload with its first part.');
+      upload = { uploadId, expectedTurn, parts: [], fingerprints: [], characters: 0 };
+      // Only one unfinished answer is held per session. A new first part replaces
+      // abandoned staging while completed raw answers remain on their turns.
+      session.answerUpload = upload;
+    }
+    if (upload.expectedTurn !== expectedTurn || index > upload.parts.length) {
+      throw new AppError(409, 'Answer parts arrived out of order. Retry the next expected part.');
+    }
+    const hash = fingerprint(text);
+    const duplicate = index < upload.parts.length;
+    if (duplicate && (upload.fingerprints[index].hash !== hash || upload.parts[index] !== text)) {
+      throw new AppError(409, 'That answer part has already been accepted with different text. Start a new upload to change your answer.');
+    }
+    if (!duplicate) {
+      upload.parts.push(text);
+      upload.fingerprints.push({ hash, characters: text.length });
+      upload.characters += text.length;
+    }
+    return { uploadId, expectedTurn, index, nextIndex: upload.parts.length, acceptedCharacters: upload.characters, duplicate };
+  }
+
+  async function answer(id, { text = '', uploadId, totalParts, answerCharacters, skipped = false, integrity, expectedTurn }) {
+    const session = load(id);
+    // A response may be lost after the model finishes. Replaying that exact turn
+    // returns the current state instead of submitting the answer to the next question.
+    if (expectedTurn !== undefined) {
+      const previous = session.turns.find((turn) => turn.number === expectedTurn);
+      if (previous?.assessment) {
+        if (uploadId ? previous.answerUpload?.uploadId === uploadId && previous.answerUpload.parts.length === totalParts && previous.answer.length === answerCharacters : skipped ? previous.answer === null : previous.answer === text) return publicState(session);
+        throw new AppError(409, 'That question has already been answered. Please continue with the current question.');
+      }
+      if (expectedTurn !== session.turns.at(-1)?.number) {
+        throw new AppError(409, 'The interview has moved to a different question. Please refresh your interview state.');
+      }
+    }
     if (session.done) throw new AppError(409, 'This interview has already finished.');
-    if (!skipped && !text) throw new AppError(400, 'Please give an answer or skip the question.');
+    const upload = uploadId ? session.answerUpload : null;
+    if (uploadId && (!upload || upload.uploadId !== uploadId || upload.expectedTurn !== expectedTurn)) {
+      throw new AppError(409, 'This answer upload is unavailable. Upload the answer parts again before submitting.');
+    }
+    if (upload && (upload.parts.length !== totalParts || upload.characters !== answerCharacters)) {
+      throw new AppError(409, 'The answer upload is incomplete. Retry the missing parts before submitting.');
+    }
+    if (upload) text = upload.parts.join('');
+    if (!skipped && !text.trim()) throw new AppError(400, 'Please give an answer or skip the question.');
 
     const turn = session.turns.at(-1);
     const slot = session.slots[session.slotIndex];
@@ -78,13 +150,17 @@ export function createInterviewEngine(ai, { random = Math.random } = {}) {
 
     session.busy = true;
     try {
+      const { answerContext, ...prompt } = turnPrompt({ session, turn, answer: text, skipped, slot, nextSlot, allowedMoves, proctoring });
       const result = await ai.generate({
         route: 'live', label: 'turn',
-        ...turnPrompt({ session, turn, answer: text, skipped, slot, nextSlot, allowedMoves, proctoring }),
+        ...prompt,
         schema: turnSchema(allowedMoves), maxTokens: 1800, timeoutMs: 25000, effort: 'medium',
       });
       // Only record the answer once the model has responded, so a failed call can simply be retried.
       turn.answer = skipped ? null : text;
+      turn.answerContext = answerContext;
+      if (upload) turn.answerUpload = { uploadId: upload.uploadId, parts: upload.fingerprints };
+      session.answerUpload = null;
       turn.assessment = result.assessment;
       turn.integrity = session.setup.proctored ? integrity || null : null;
       if (proctoring.length) session.reminders++;
@@ -92,38 +168,50 @@ export function createInterviewEngine(ai, { random = Math.random } = {}) {
       applyMove(session, result);
     } finally {
       session.busy = false;
+      session.touchedAt = now();
     }
     return publicState(session);
   }
 
   async function end(id, finalIntegrity) {
+    const cached = completedReports.get(id);
+    if (cached?.expiresAt > now()) return cached.report;
+    completedReports.delete(id);
     const session = load(id);
     const answered = session.turns.filter((t) => t.assessment);
-    const meta = reportMeta(session, answered);
+    const meta = reportMeta(session, answered, now());
     if (session.setup.proctored) {
       meta.integrity = summarizeIntegrity({ turns: answered, finalTotals: finalIntegrity, faceChecks: finalIntegrity?.faceChecks });
     }
 
     if (!answered.some((t) => t.answer)) {
       sessions.delete(id);
-      return { ...meta, insufficient: true };
+      return saveReport(id, { ...meta, insufficient: true });
     }
 
     session.busy = true;
     let report;
+    const { evaluationCoverage, ...prompt } = reportPrompt(session, answered);
     try {
       report = await ai.generate({
-        route: 'report', label: 'report', ...reportPrompt(session, answered),
+        route: 'report', label: 'report', ...prompt,
         schema: reportSchema, maxTokens: Math.min(16000, 3000 + answered.length * 500), timeoutMs: 120000, effort: 'medium',
       });
     } finally {
       session.busy = false;
+      session.touchedAt = now();
     }
     sessions.delete(id);
-    return { ...meta, ...buildReport(session, answered, report) };
+    return saveReport(id, { ...meta, ...buildReport(session, answered, report, evaluationCoverage) });
   }
 
-  return { start, answer, end };
+  function saveReport(id, report) {
+    completedReports.set(id, { report, expiresAt: now() + REPORT_RETRY_MS });
+    if (completedReports.size > MAX_SESSIONS) completedReports.delete(completedReports.keys().next().value);
+    return report;
+  }
+
+  return { start, answer, answerPart, keepAlive, end };
 }
 
 function movesFor(session, slot, nextSlot) {
@@ -184,24 +272,28 @@ function publicState(session) {
   };
 }
 
-function reportMeta(session, answered) {
+function reportMeta(session, answered, at) {
   const { company, role, type, difficulty } = session.setup;
   return {
     company, role, type, difficulty,
-    durationSeconds: Math.round((Date.now() - session.startedAt) / 1000),
+    durationSeconds: Math.round((at - session.startedAt) / 1000),
     questionsAnswered: answered.filter((t) => t.answer).length,
     questionsSkipped: answered.filter((t) => !t.answer).length,
     panel: session.panel.map(({ id, name, role }) => ({ id, name, title: ROLES[role].title })),
   };
 }
 
-function buildReport(session, answered, report) {
+function buildReport(session, answered, report, evaluationCoverage) {
   const reviews = new Map(report.question_review.map((r) => [r.index, r]));
   const examples = new Map(report.example_answers.map((e) => [e.index, e.answer]));
   const { question_review, example_answers, ...rest } = report;
+  const contexts = new Map(evaluationCoverage.questions.map((context) => [context.number, context]));
+  const { questions: _contexts, ...coverage } = evaluationCoverage;
 
   return {
     ...rest,
+    contextLimited: coverage.contextLimited,
+    evaluationCoverage: coverage,
     matches: {
       strong: session.plan.strong_matches,
       partial: session.plan.partial_matches,
@@ -214,6 +306,11 @@ function buildReport(session, answered, report) {
       interviewer: t.interviewer,
       question: t.question,
       answer: t.answer,
+      answerCharacters: t.answer?.length || 0,
+      contextCharacters: contexts.get(t.number)?.contextCharacters || 0,
+      reportContextCharacters: contexts.get(t.number)?.contextCharacters || 0,
+      liveContextCharacters: t.answerContext?.contextCharacters || 0,
+      contextLimited: Boolean(t.answerContext?.contextLimited || contexts.get(t.number)?.contextLimited),
       integrityFlags: describeIntegrity(t.integrity),
       score: t.assessment.score,
       verdict: t.assessment.verdict,

@@ -1,0 +1,45 @@
+{
+  "name": "TensorFlow.js COCO SSD lite_mobilenet_v2",
+  "source": "https://storage.googleapis.com/tfjs-models/savedmodel/ssdlite_mobilenet_v2/",
+  "upstreamPackage": "@tensorflow-models/coco-ssd@2.2.3",
+  "license": "Apache-2.0",
+  "verification": "Verified HTTPS, Google published MD5, and recorded SHA-256",
+  "files": [
+    {
+      "path": "model.json",
+      "sha256": "3770b2528339b1e3340cb74360e1e40401816b009779aeb8d0cce3a4353ea3a9",
+      "upstreamMD5": "bnNU32VmEkrYAamED1Lahw==",
+      "bytes": 527315
+    },
+    {
+      "path": "group1-shard1of5",
+      "sha256": "0e7af0f713e98521252321f7f84892c31cefccccec3ac64c84e5065b75ed5646",
+      "upstreamMD5": "Y7TnWzbgjnShFBTou6cjWA==",
+      "bytes": 4194304
+    },
+    {
+      "path": "group1-shard2of5",
+      "sha256": "74cc6cfc2c4510c9cd81b8ad4cebf6f6a8f305119bb365ce0eb96276da38519a",
+      "upstreamMD5": "6/qoVvsBOa5O9fGm7ebt+Q==",
+      "bytes": 4194304
+    },
+    {
+      "path": "group1-shard3of5",
+      "sha256": "50383033f893eae136392a403e8f70ade5efd90867df5695c4ca5ac640e14f38",
+      "upstreamMD5": "XvMgHs4R+tMrICFwl/bAfQ==",
+      "bytes": 4194304
+    },
+    {
+      "path": "group1-shard4of5",
+      "sha256": "d856dc534c780068bbf6c666ce1516df2c8433d87578aa31fcdf197de7058cc2",
+      "upstreamMD5": "zC3mHuQAmlDFlIZm7MdCpg==",
+      "bytes": 4194304
+    },
+    {
+      "path": "group1-shard5of5",
+      "sha256": "3d356f1fb6dfca6af78c56db34d9326706d0196e303f9de6b04f236ca79ed309",
+      "upstreamMD5": "fSwRhmRXVrG0JVUTOo11Mg==",
+      "bytes": 1257312
+    }
+  ]
+}

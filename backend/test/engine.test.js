@@ -86,3 +86,30 @@ test('empty answers are rejected', async () => {
   const state = await engine.start({ setup: setup(), cv: null, jd: null });
   await assert.rejects(engine.answer(state.sessionId, { text: '', skipped: false }), (err) => err.status === 400);
 });
+
+test('a lost answer response can be replayed once without answering the next question', async () => {
+  const ai = createFakeAI();
+  const engine = createInterviewEngine(ai);
+  const state = await engine.start({setup:setup(),cv:null,jd:null});
+  const answer = {text:LONG_ANSWER,skipped:false,expectedTurn:state.turn.number};
+  const next = await engine.answer(state.sessionId, answer);
+  const calls = ai.calls.length;
+  const replayed = await engine.answer(state.sessionId, answer);
+  assert.deepEqual(replayed, next);
+  assert.equal(ai.calls.length, calls, 'replay makes no new provider request');
+  await assert.rejects(engine.answer(state.sessionId, {...answer,text:'Changed answer'}), (err) => err.status === 409);
+  const report = await engine.end(state.sessionId);
+  assert.equal(report.questionsAnswered, 1);
+});
+
+test('a lost report response can be replayed without regenerating the report or reopening the session', async () => {
+  const ai = createFakeAI();
+  const engine = createInterviewEngine(ai);
+  const state = await engine.start({setup:setup(),cv:null,jd:null});
+  await engine.answer(state.sessionId, {text:LONG_ANSWER,skipped:false,expectedTurn:state.turn.number});
+  const report = await engine.end(state.sessionId);
+  const calls = ai.calls.length;
+  assert.deepEqual(await engine.end(state.sessionId), report);
+  assert.equal(ai.calls.length, calls);
+  await assert.rejects(engine.answer(state.sessionId,{text:LONG_ANSWER,skipped:false}), (err) => err.status === 404);
+});

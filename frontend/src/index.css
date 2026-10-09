@@ -1,80 +1,140 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @theme {
-  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-
-  --color-canvas: #0a0c10;
-  --color-surface: #11141a;
-  --color-raised: #171b23;
-  --color-line: #242a35;
-  --color-line-strong: #323946;
-  --color-ink: #eef1f6;
-  --color-ink-soft: #b7bfcc;
-  --color-muted: #7d8699;
-
-  --color-accent: #3987e5;
-  --color-accent-strong: #2a78d6;
-  --color-accent-soft: #1b2f4d;
-
-  --color-good: #0ca30c;
-  --color-warning: #fab219;
-  --color-serious: #ec835a;
-  --color-critical: #d03b3b;
-
-  --animate-rise: rise 0.35s ease-out both;
+  --font-sans:
+    'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    sans-serif;
+  --color-canvas: #0b0e13;
+  --color-surface: #12171f;
+  --color-raised: #1a212c;
+  --color-line: #29313e;
+  --color-line-strong: #3a4657;
+  --color-ink: #f0f3f8;
+  --color-ink-soft: #c1cad7;
+  --color-muted: #929fb2;
+  --color-accent: #6aa5ee;
+  --color-accent-strong: #326db5;
+  --color-accent-soft: #203859;
+  --color-good: #71c99e;
+  --color-warning: #e9be69;
+  --color-serious: #eea17b;
+  --color-critical: #f28c94;
+  --animate-rise: rise 0.25s ease-out both;
   --animate-breathe: breathe 6s ease-in-out infinite;
   --animate-talk: talk 2.6s ease-in-out infinite;
 
   @keyframes rise {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: none; }
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
   @keyframes breathe {
-    0%, 100% { transform: scale(1.02); }
-    50% { transform: scale(1.035); }
+    0%,
+    100% {
+      transform: scale(1.02);
+    }
+    50% {
+      transform: scale(1.035);
+    }
   }
   @keyframes talk {
-    0%, 100% { transform: scale(1.03) translateY(0); }
-    30% { transform: scale(1.04) translateY(-0.4%); }
-    60% { transform: scale(1.035) translateY(0.2%); }
+    0%,
+    100% {
+      transform: scale(1.03) translateY(0);
+    }
+    30% {
+      transform: scale(1.04) translateY(-0.4%);
+    }
+    60% {
+      transform: scale(1.035) translateY(0.2%);
+    }
   }
 }
 
 html {
   color-scheme: dark;
   background: var(--color-canvas);
+  scroll-behavior: smooth;
+  scroll-padding-top: 2rem;
 }
 
 body {
-  @apply bg-canvas font-sans text-ink antialiased;
+  @apply m-0 bg-canvas font-sans text-ink antialiased;
+  min-width: 320px;
 }
 
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+button:not(:disabled),
+label:has(input[type='radio']) {
+  -webkit-tap-highlight-color: transparent;
+}
 ::selection {
   background: var(--color-accent-soft);
 }
-
 :focus-visible {
   outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline-offset: 3px;
+}
+h1[tabindex='-1']:focus {
+  outline: none;
+}
+input:focus-visible,
+textarea:focus-visible {
+  outline-offset: 0;
+}
+.option-grid {
+  grid-template-columns: repeat(var(--option-columns), minmax(0, 1fr));
 }
 
-/* Audio level bars shown while an interviewer is speaking */
+/* Speech state cues, used only while the browser is actually speaking. */
 .voice-bars span {
   width: 3px;
   border-radius: 2px;
   background: currentColor;
   animation: voice 0.9s ease-in-out infinite;
 }
-.voice-bars span:nth-child(2) { animation-delay: 0.15s; }
-.voice-bars span:nth-child(3) { animation-delay: 0.3s; }
-.voice-bars span:nth-child(4) { animation-delay: 0.45s; }
+.voice-bars span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.voice-bars span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.voice-bars span:nth-child(4) {
+  animation-delay: 0.45s;
+}
 @keyframes voice {
-  0%, 100% { height: 4px; }
-  50% { height: 14px; }
+  0%,
+  100% {
+    height: 4px;
+  }
+  50% {
+    height: 14px;
+  }
+}
+
+@media (max-width: 520px) {
+  .option-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -82,7 +142,50 @@ body {
 }
 
 @media print {
-  html, body { background: #fff; color: #111; }
-  .no-print { display: none !important; }
-  .print-plain { background: #fff !important; border-color: #ddd !important; color: #111 !important; }
+  html,
+  body {
+    color-scheme: light;
+    background: #fff !important;
+    color: #111 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-plain {
+    background: #fff !important;
+    border-color: #cbd5e1 !important;
+    color: #111 !important;
+    break-inside: avoid;
+  }
+  [class*='bg-surface'],
+  [class*='bg-raised'],
+  [class*='bg-canvas'] {
+    background-color: #fff !important;
+  }
+  [class*='border-line'] {
+    border-color: #cbd5e1 !important;
+  }
+  [class*='text-ink'],
+  [class*='text-muted'],
+  [class*='text-accent'],
+  [class*='text-good'],
+  [class*='text-warning'],
+  [class*='text-serious'],
+  [class*='text-critical'] {
+    color: #263548 !important;
+  }
+  a {
+    text-decoration: none;
+  }
+  svg {
+    print-color-adjust: exact;
+  }
+  [data-print-chart] {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+  [data-print-chart-wrap] {
+    overflow: visible !important;
+  }
 }

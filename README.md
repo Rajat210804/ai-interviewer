@@ -1,293 +1,152 @@
 # AI Interviewer
 
-A virtual interview room that reads your CV and the job description, then runs a realistic interview with a panel of one to three AI interviewers. They ask one question at a time, follow up on vague or shaky answers, challenge claims on your CV, and finish with a detailed debrief.
+An interview practice platform that runs technical and HR interviews in the browser. It uses your CV, the job description and your answers to guide the conversation, then gives you a review you can use to prepare for the next interview.
 
-It runs as a single Node service: an Express API that also serves the React app. It is built to deploy on Render.
+The aim is to make practising alone more useful: questions have context, follow ups test what you actually said, and feedback refers to your answers. This is a practice tool, not a hiring service or a verified assessment of a candidate.
 
-## Features
+## How an interview works
 
-1. **Interview setup.** Enter the company, role and your name, then upload a CV and a JD as PDF, DOCX, TXT or an image, or paste them in. Both are optional; the interview adapts to whatever you give it.
-2. **Document analysis on upload.** The CV and JD are analysed as soon as you add them, so they are usually ready before you finish choosing settings.
-3. **Interview types:** HR, Technical or Mixed. **Difficulties:** Easy, Medium or Hard, and the difficulty changes the reasoning depth and how hard the panel pushes, not just a label. **Lengths:** 10, 20 or 30 planned questions.
-4. **Panels of 1 to 3 interviewers**, each with its own role (HR Manager, Technical Lead, Hiring Manager), personality, voice and photo avatar.
-5. **Video-call style interview room:** a waiting room that checks your camera and microphone while the panel gets ready, then a main speaker tile, a filmstrip, your camera, captions, and mute, camera, voice and end controls.
-6. **Voice or text answers of any reasonable length.** Answers can run to 15,000 characters (about 2,500 words). The answer box grows as you type, and a timer and word count show how long you have been talking. Speech recognition runs in the browser (Chrome and Edge) and keeps listening through pauses, with a Groq Whisper fallback for other browsers and a text box everywhere.
-7. **Dynamic questions.** Each question is generated after your previous answer, so follow-ups build on what you actually said.
-8. **Real interview conditions (on by default).** Your camera stays on, the interview runs in full screen, pasting is turned off, and the app notices when you leave the window, look away, leave the camera frame or someone else appears. The interviewer reacts like a real one would, with a polite reminder, and the debrief includes an integrity summary. Choose "Relaxed practice" on the setup screen to switch this off.
-9. **Debrief dashboard:** an overall score, six skill dimensions, a chart of scores by question, strengths and weak areas, and technical, HR and resume analysis. It also shows your CV against the role, a study plan, a question-by-question review with an ideal answer structure, example stronger answers and, in real interview conditions, the integrity summary. You can save it as a PDF.
+1. Enter the role and company. Upload or paste a CV and job description if you want questions grounded in your experience and the role.
+2. Choose HR, Technical or Mixed, a difficulty, 10, 20 or 30 planned questions, and a panel of one to three interviewers.
+3. Check your devices in the waiting room. Camera and microphone failures have retry controls; typed answers remain available.
+4. The panel asks one question at a time. Answer by voice or text, take the time you need, and send when you are ready. You can repeat or skip a question and finish early.
+5. Review your scores, strengths, gaps, study plan and question by question transcript. The report can be printed or saved as a PDF through the browser.
+
+HR interviews probe examples, decisions and outcomes. Technical interviews ask for reasoning and, when appropriate, edge cases, implementation details and complexity. Mixed interviews include both. A supplied JD guides relevant skills and scenarios; a supplied CV gives the panel claims and projects to explore.
+
+Difficulty controls the depth of questioning and the follow up budget: Easy allows one follow up per planned question, Medium two and Hard three. The model chooses wording and probes from the previous answer within those constraints. The prompts discourage repeated questions, automatic praise and giving away the answer during the interview. Generated questions can still vary in quality.
+
+Interviewers have fictional names, professional roles, photo avatars and browser voices. Listening, thinking, speaking and transition states follow the interview and speech lifecycle. These are portraits with state indicators, not generated video or animated lip sync. The photos are served locally; their sources and licence references are in `frontend/public/avatars`.
+
+## Answers and audio
+
+There is no application deadline or character limit for a candidate answer. The answer timer and word count are informational. Silence does not submit an answer, and the app waits for the candidate to send it.
+
+Large typed answers travel in ordered parts so each request fits the server's request budget. An interrupted upload can resume from the last acknowledgement. Submissions carry the expected turn, which prevents a lost response and retry from advancing the interview twice. The complete submitted text is kept in the session and report.
+
+Browser speech recognition is used where available. It restarts through pauses and preserves the transcript. The alternative records microphone audio for Groq Whisper. That recording rotates into independently decodable segments roughly every 45 seconds and at a conservative size threshold. Segments are transcribed in order while the candidate keeps speaking. Rotation is a transport detail, not an answer time limit. Failed segments stay in the current tab for retry or explicit discard; sending waits for the remaining transcription.
+
+Recording and transcription depend on the browser, available memory, connection and provider. A brief overlap can occur at recorder boundaries. The server accepts up to 10 MB per audio upload. Speech recognition can mishear or omit words, so review the transcript before sending. Interviewer speech uses the browser's installed voices; captions remain usable if playback fails.
+
+AI context is finite even though the stored answer is not clipped. Live assessment receives up to 16,000 characters of answer context. Reports share a 24,000 character answer context budget within a 48,000 character total transcript budget. Very long answers use labelled beginning, middle and end excerpts. The report identifies limited context and distinguishes the stored transcript from the text supplied for assessment. Scores are practice feedback, not a claim that omitted text was reviewed.
+
+## Monitoring and computer vision
+
+The optional interview conditions mode combines local camera inference with browser observations. Relaxed practice turns monitoring off and permits notes and pasting.
+
+The camera pipeline shares one TensorFlow.js runtime. Tiny Face Detector and facial landmarks estimate face count, framing, head direction and movement. This is face detection, not identity recognition: there is no enrolment, face matching or biometric identity check. Head direction is an approximate signal and does not measure eye gaze.
+
+COCO SSD uses its actual `cell phone` class to look for visible phones. It also watches a limited set of reference objects, currently books and remotes. Position relative to a detected face can describe a nearby phone, but cannot establish whether someone is holding or using it. Unknown objects and things outside the camera view cannot be reliably detected.
+
+Inference runs at a lower rate than the camera preview: face checks approximately every 750 ms on WebGL or 1.5 seconds on CPU, and object checks every 2.4 or 4 seconds. Work is serialized and scheduled after inference completes. Models load once, inputs are downscaled, and checks pause or stop with the interview lifecycle. A failed object model leaves face checks available and is shown as missing coverage, not a clean result.
+
+A central event engine applies confidence thresholds, persistence, cooldowns and rolling windows. A single missing face or phone frame does not create a violation. Examples include:
+
+| Observation | Response |
+| --- | --- |
+| Brief camera instability | Informational device event |
+| Face missing across several samples for 3 seconds | Warning |
+| Multiple faces continuing for 7 seconds | Serious event for review |
+| Sustained or repeated looking away | Warning, then increased suspicion |
+| Potential phone continuing for 4 seconds | Warning or suspicious event, depending on confidence |
+| Repeated confident phone observations | Increased severity for manual review |
+
+Events use `INFO`, `WARNING`, `SUSPICIOUS` and `SERIOUS_VIOLATION`, with timestamps, duration and detection confidence where meaningful. The bounded event log and coverage summary appear in the report. Monitoring observations do not lower the answer scores or prove misconduct.
+
+Browser monitoring observes visibility changes, window focus, fullscreen exits, copy and paste actions, selected shortcuts, and camera or microphone permission and track changes. It cannot know which other application was opened, inspect another physical device, or reliably detect developer tools. Device failures are reported as interruptions rather than accusations.
+
+Camera frames are processed locally and are not uploaded by monitoring. The backend receives sanitized counts, coverage and events, which it treats as untrusted observations. Audio recorded for Whisper is sent to the backend and Groq; submitted text, CV/JD content and interview context are sent to the configured AI providers. No media recording or account history is persisted by this application.
 
 ## Architecture
 
-```
-Browser (React)                           Express server                       Model providers
-─────────────────                         ─────────────────                    ───────────────
-Setup ── upload CV / JD ───────────────▶  POST /api/documents/:kind  ──┐
-                                            extract text (PDF, DOCX,   │
-                                            TXT, image OCR) + analyse  ├──▶  AI layer ──▶ Gemini (analysis, OCR, report)
-Waiting room ── start ─────────────────▶  POST /api/interview/start   │     createAI()    Groq  (live turns, Whisper)
-                                            plan + opening question    │     fallback to the other
-Interview room ── each answer ─────────▶  POST /api/interview/:id/answer   provider if one fails
-  (face and focus checks run here,          assess + next question     │
-   only counts are sent)                                                │
-Debrief ◀── report ─────────────────────  POST /api/interview/:id/end ┘
-```
+The frontend is React 19 with Vite 8, Tailwind CSS 4 and lucide-react. The backend is Node and Express 5, using Zod for validation, multer for memory uploads, unpdf for PDF extraction and mammoth for DOCX files.
 
-API keys exist only on the server. The browser only ever talks to `/api/*`.
+In production, Express serves the built frontend and `/api` from the same origin. Development uses Vite's API proxy. Provider credentials stay on the server.
 
-## Tech stack
+| Area | Location | Responsibility |
+| --- | --- | --- |
+| Screen flow and UI | `frontend/src/App.jsx`, `components/` | Setup, device check, interview and report |
+| Media and preparation | `frontend/src/hooks/` | Device lifecycle, recognition, recording, speech and preparation cancellation |
+| Monitoring | `frontend/src/proctoring/`, `hooks/useProctoring.js` | Models, temporal rules and browser events |
+| Client transport | `frontend/src/api.js` | Timeouts, cancellation, answer upload and retry |
+| Interview engine | `backend/src/interview/` | Plans, turns, follow ups, sessions and integrity summaries |
+| Prompts and validation | `backend/src/ai/prompts.js`, `schemas.js` | Model instructions, evidence and response schemas |
+| Providers | `backend/src/ai/providers.js`, `index.js` | Existing Gemini/Groq routing, fallback and JSON repair |
+| API | `backend/src/routes/` | Documents, interviews and transcription |
 
-| Part | Choice |
-| --- | --- |
-| Frontend | React 19, Vite 8, Tailwind CSS 4, lucide-react icons |
-| Backend | Node 22, Express 5, zod for validation, multer for uploads, helmet and express-rate-limit |
-| Documents | unpdf (PDF), mammoth (DOCX), vision model OCR (images) |
-| AI | Google Gemini and Groq behind one provider layer (Gemini's own API, Groq's OpenAI-compatible API) |
-| Voice | Browser SpeechSynthesis and SpeechRecognition, with Groq Whisper as the fallback |
-| Storage | None. Sessions live in memory and are deleted when the interview ends |
+Gemini is the default first choice for document analysis and reports; Groq is the default for live turns and Whisper. The existing provider layer validates structured responses, attempts a repair when needed and uses the available fallback provider. Its configuration remains in `backend/src/config.js`.
 
-## Project structure
-
-```
-ai-interviewer/
-├── package.json            build and start scripts used by Render
-├── render.yaml             Render blueprint
-├── backend/
-│   ├── src/
-│   │   ├── server.js       starts the app
-│   │   ├── app.js          Express setup, security headers, routes, static frontend
-│   │   ├── config.js       environment variables
-│   │   ├── errors.js       user-safe errors and the error handler
-│   │   ├── ai/
-│   │   │   ├── providers.js  AIProvider, GeminiProvider, GroqProvider
-│   │   │   ├── index.js      routing between providers, fallback, JSON repair
-│   │   │   ├── prompts.js    CV, JD, OCR, plan, interview turn and report prompts
-│   │   │   └── schemas.js    zod schemas for every model response
-│   │   ├── documents/extract.js   file type detection and text extraction
-│   │   ├── interview/
-│   │   │   ├── flow.js     panel roles, question plan, opening lines
-│   │   │   ├── engine.js   session state, turns, follow-ups, report
-│   │   │   └── integrity.js  proctoring counts: validation, notes, summary
-│   │   └── routes/         documents, interview, transcribe
-│   ├── scripts/check-ai.js checks that your keys and models work
-│   └── test/               unit and API tests with a fake AI
-└── frontend/
-    ├── public/models/      face detection models (about 270 KB, served locally)
-    └── src/
-        ├── App.jsx         screen flow: setup, waiting room, interview, report
-        ├── api.js          fetch wrapper with friendly errors
-        ├── data/panel.js   avatars, roles, options
-        ├── hooks/          document analysis, speech, camera, proctoring
-        └── components/     setup, interview room, report and shared UI
-```
-
-## Environment variables
-
-| Variable | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| `GEMINI_API_KEY` | One of the two keys | | Google AI Studio key |
-| `GROQ_API_KEY` | One of the two keys | | Groq key (also needed for the Whisper fallback) |
-| `GEMINI_MODEL` | No | `gemini-3.8-flash` | Gemini model for documents, images and the report |
-| `GEMINI_FALLBACK_MODEL` | No | `gemini-3.5-flash-lite` | Used automatically when the main Gemini model is overloaded or unavailable |
-| `AI_PRIMARY` | No | `gemini` | Set to `groq` to have Groq read documents and write the report first (Gemini still reads images and stays as the backup) |
-| `GROQ_MODEL` | No | `openai/gpt-oss-120b` | Groq chat model |
-| `GROQ_VISION_MODEL` | No | `qwen/qwen3.8-27b` | Groq model for reading images |
-| `GROQ_WHISPER_MODEL` | No | `whisper-large-v3-turbo` | Speech-to-text fallback |
-| `PORT` | No | `3001` | Render sets this automatically |
-
-With both keys set, each provider covers for the other. With one key, everything runs on that provider. Voice fallback for non-Chrome browsers needs the Groq key.
+Sessions are held in memory. Active interviews send a heartbeat while the candidate answers or the interviewer speaks; three hours of inactivity expires a session. Completed reports are cached for five minutes to allow recovery from a lost response. Sessions and the cache are bounded, and a process restart loses them. There is no database, account system or cross-device resume.
 
 ## Local setup
 
-You need Node 22.12 or newer.
+Use Node 22.12 or newer and npm. From this repository:
 
 ```bash
-git clone <your repo> ai-interviewer
-cd ai-interviewer
-npm install --prefix backend
-npm install --prefix frontend
-cp backend/.env.example backend/.env    # then paste your keys into backend/.env
-npm run check:ai --prefix backend       # confirms both keys and models respond
+npm ci --prefix backend
+npm ci --prefix frontend
 ```
 
-### Running the backend
+For a new installation, copy `backend/.env.example` to `backend/.env` and configure provider credentials there or through your environment. Preserve an existing `.env`; it is ignored by Git. Never put provider keys in frontend variables.
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | Gemini credential | None |
+| `GROQ_API_KEY` | Groq credential; required for Whisper fallback | None |
+| `AI_PRIMARY` | First provider for analysis and reports | `gemini` |
+| `GEMINI_MODEL` | Gemini model | `gemini-3.8-flash` |
+| `GEMINI_FALLBACK_MODEL` | Alternative Gemini model | `gemini-3.5-flash-lite` |
+| `GROQ_MODEL` | Groq chat model | `openai/gpt-oss-120b` |
+| `GROQ_VISION_MODEL` | Groq image model | `qwen/qwen3.8-27b` |
+| `GROQ_WHISPER_MODEL` | Transcription model | `whisper-large-v3-turbo` |
+| `PORT` | Backend port | `3001` |
+
+At least one chat provider must be configured to conduct interviews. Provider model availability depends on the account; the table records the repository defaults.
+
+Start the backend and frontend in separate terminals:
 
 ```bash
 npm run dev --prefix backend
-```
-
-This starts the API on http://localhost:3001 and restarts on file changes. It reads `backend/.env`.
-
-### Running the frontend
-
-In a second terminal:
-
-```bash
 npm run dev --prefix frontend
 ```
 
-Open http://localhost:5173. Vite forwards `/api` requests to the backend on port 3001.
+Open `http://localhost:5173`. The backend runs on port 3001. Camera and microphone access require a secure context, such as localhost or HTTPS.
 
-### Running it like production
-
-```bash
-npm run build     # installs both parts and builds the frontend
-npm start         # Express serves the API and the built app on one port
-```
-
-## API configuration
-
-Both providers are called through `backend/src/ai`. The rest of the app only calls `ai.generate({ route, system, user, schema })`.
-
-| Route | First choice | Fallback | Used for |
-| --- | --- | --- | --- |
-| `analysis` | Gemini | Groq | CV analysis, JD analysis, interview plan |
-| `ocr` | Gemini | Groq | Reading CV or JD images |
-| `live` | Groq | Gemini | Assessing each answer and writing the next question |
-| `report` | Gemini | Groq | The final debrief |
-
-**Why this split:** Gemini handles long documents, images and long-form judgement well, so it reads the CV and JD and writes the debrief. Groq is very fast, so it runs the live conversation, where a few seconds of delay would break the feeling of a real interview.
-
-**How a call works:**
-
-1. Every call uses JSON mode.
-2. The response is parsed and validated with a zod schema. If it doesn't match, the same provider gets one repair attempt, with the validation errors attached.
-3. If that still fails, or the provider times out, rate-limits, rejects the key or doesn't have the model, the other provider is tried once.
-
-A normal call is a single request; nothing is sent twice unless something failed.
-
-API endpoints:
-
-| Method and path | Purpose |
-| --- | --- |
-| `GET /api/health` | Which providers are configured (used by the UI and Render's health check) |
-| `POST /api/documents/cv` and `/api/documents/jd` | Multipart `file` or `text`; returns the structured profile |
-| `POST /api/interview/start` | Setup plus the CV and JD profiles; returns the session, panel and opening question |
-| `POST /api/interview/:id/answer` | `{ text, skipped }`; returns the next question or the closing remarks |
-| `POST /api/interview/:id/end` | Returns the debrief and deletes the session |
-| `POST /api/transcribe` | Multipart `audio`; Whisper transcription for browsers without speech recognition |
-
-## Render deployment
-
-### Option 1: Blueprint (recommended)
-
-1. Push this folder to a GitHub repository.
-2. In Render, choose **New → Blueprint** and select the repository. Render reads `render.yaml`.
-3. When prompted, paste `GEMINI_API_KEY` and `GROQ_API_KEY`. They are stored as secrets and never committed.
-4. Deploy. Render runs `npm run build`, then `npm start`, and checks `/api/health`.
-
-### Option 2: Manual web service
-
-1. **New → Web Service**, connect the repository, runtime **Node**.
-2. Build command: `npm run build`
-3. Start command: `npm start`
-4. Environment: add `GEMINI_API_KEY`, `GROQ_API_KEY` and `NODE_VERSION=22`.
-5. Health check path: `/api/health`
-
-No source changes are needed to deploy. Render's free plan has no shell, so check your keys on your own machine with `npm run check:ai --prefix backend` before deploying. After deploying, open `https://<your-app>.onrender.com/api/health`; both providers should show `true`.
-
-## How the interview engine works
-
-The engine (`backend/src/interview/engine.js`) keeps one session per interview. The session holds the setup, the CV and JD profiles, the plan, the panel, every question and answer with its private assessment, the topics already covered, and the strong and weak areas seen so far.
-
-**The code decides the shape of the interview; the model decides the words.**
-
-1. `flow.js` builds a plan of question slots when the interview starts. It always opens with an introduction and ends with your questions for the panel. The middle is split across categories (resume, behavioural, role, technical, scenario, motivation) according to the interview type. The order is shuffled a little each time, so no two interviews follow the same sequence.
-2. Each slot is owned by the interviewer whose role fits it. Technical questions go to the Technical Lead, behavioural ones to HR, and resume questions alternate between the Hiring Manager and the Technical Lead.
-3. After each answer, one model call does two jobs. It privately scores the answer (0 to 10, with a verdict, gaps and anything technically wrong) and writes what the panel says next.
-4. The model can only choose moves the plan allows. It may follow up (Easy allows 1 follow-up per question, Medium 2, Hard 3), move to the next planned question, or close the interview. A move outside the allowed set fails schema validation and is repaired, so the interview can't drift off its plan.
-5. The prompt tells the interviewer to probe vague answers ("What exactly did you implement yourself?"), verify impressive claims with concrete questions, challenge wrong statements, and avoid chatbot praise.
-6. When the interview ends, the full transcript and the live assessments go to the report prompt. Its output is merged with the real questions and answers, which come from the session rather than from the model, and the session is deleted.
-
-## Real interview conditions and integrity checks
-
-With "Real interview" selected on the setup screen (the default), the interview behaves like a proctored video interview.
-
-1. **Waiting room.** Before joining, you see your camera preview, a face check and a microphone level meter, plus the rules. Camera and microphone permission are asked for here, so nothing pops up mid-interview.
-2. **Full screen.** Joining opens the interview in full screen. If you leave it, the interview pauses behind a prompt to return; you may carry on in the window, but the exit is recorded.
-3. **Camera stays on.** The camera button is locked while the camera works. About once a second, a small face model checks the picture: no face in frame, head turned away from the screen, or a second face.
-4. **Window and tab focus.** Switching tabs or apps for 2 seconds or more is recorded with its duration, and a notice tells you so.
-5. **No pasting.** Paste and drag-and-drop into the answer box are blocked and counted, and the question captions can't be copied.
-6. **The interviewer notices.** Events during an answer are passed to the interviewer, who may add one polite reminder ("please stay on this screen"), at most twice per interview. The interviewer is told never to accuse you of cheating and to judge each answer on its content only.
-7. **Integrity summary in the debrief.** It shows a level (No concerns, Minor flags or Needs review) with the counts behind it, which questions were flagged, and a per-question note. It says plainly that automated checks can be wrong.
-
-**Privacy.** Face checks run entirely in the browser with [face-api](https://github.com/vladmandic/face-api) (TensorFlow.js, a tiny face detector and a 68-point landmark model, about 270 KB, served from this app). Video never leaves the device. The server only receives counts such as `awayEvents: 2, awaySeconds: 41` and validates them leniently, since they come from the browser.
-
-**Tuning.** A problem must last 2 seconds before it counts, and two checks in a row must agree, so blinks, glances and single odd frames are ignored. Looking away needs 20 seconds for a minor flag and 90 for review, because people look away while they think. The thresholds are in `backend/src/interview/integrity.js` and `frontend/src/hooks/useProctoring.js`. Without WebGL the checks fall back to the CPU and run less often, to keep the page responsive.
-
-## How CV and JD analysis works
-
-1. The file type is detected from the file's first bytes, not from its name. Anything other than PDF, DOCX, TXT, PNG, JPG or WEBP is rejected. The size limit is 5 MB.
-2. Text is extracted with unpdf or mammoth. Images go to a vision model that transcribes them. A scanned PDF with no text layer gets a clear message asking for an image instead.
-3. The text is cleaned and capped at 20,000 characters, and the model extracts a structured profile.
-   **CV profile:** education, skills, languages, frameworks, tools, projects with their claims, experience, certifications, achievements, and a list of claims worth probing.
-   **JD profile:** required and preferred skills, responsibilities, qualifications, tools, domain knowledge, soft skills and experience requirements.
-4. If the document clearly isn't a CV or a JD, you are told so.
-5. At the start of the interview, the plan prompt compares the two profiles. It lists strong matches, partial matches and missing skills, 10 to 15 prioritised focus areas (including missing skills to test real understanding), and a style note for the company. That note is limited to widely known facts about the type of employer; the model is told never to invent facts about the company.
-
-## Testing
+Vision weights are included under `frontend/public/models`; no model download is needed during normal startup or build. To restore the COCO SSD assets:
 
 ```bash
-npm test --prefix backend
+npm run setup:vision --prefix frontend
 ```
 
-There are 46 tests. They cover:
+That command needs curl and network access to `storage.googleapis.com`. It retains TLS verification and checks official object checksums plus the recorded SHA-256 values. Model provenance and the COCO SSD Apache 2.0 licence are included with the assets.
 
-1. The question planner.
-2. Provider request formats: Gemini's JSON output and image parts, Groq reasoning settings, Whisper upload.
-3. Fallback between providers, and repair of malformed JSON.
-4. A full interview through the engine.
-5. The HTTP API with real PDF, DOCX, TXT and image uploads.
-6. File validation and size limits.
-7. That errors never leak internals.
-8. Integrity checks: lenient validation of the counts, the interviewer's reminder (and its limit of two), the debrief summary and levels, and that relaxed interviews ignore them.
-9. Long answers: 15,000 characters accepted, longer ones trimmed instead of rejected, and the debrief prompt kept within a fixed size.
-
-All tests use a fake AI, so they need no keys or network.
-
-To click through the UI without spending API credits:
+## Testing and building
 
 ```bash
-npm run build --prefix frontend
-node backend/test/ui-server.js     # http://localhost:4173, fake interviewer
+npm test                          # backend and frontend tests
+npm run build                     # frozen dependency installs and frontend production build
+npm start                         # serve the built app and API
+npm run check:ai --prefix backend # optional live provider and sample CV checks
 ```
 
-## Troubleshooting
+Tests use fake AI responses rather than credentials. They exercise API validation, document extraction, allowed interview moves, provider fallback, prompt boundaries, full answer retention, resumable uploads, response replay, session activity, report budgets, media cleanup, recorder rotation, browser listeners and temporal proctoring. The vision rules include transient and prolonged missing faces, multiple faces, phone confidence and persistence, repeated looking away, camera/microphone failures, blur and fullscreen events.
 
-| Problem | What to do |
-| --- | --- |
-| "The AI interviewer isn't configured yet" | No key is set. Add `GEMINI_API_KEY` and/or `GROQ_API_KEY` and restart. |
-| "The AI service rejected the server credentials" | A key is wrong or revoked. Run `npm run check:ai --prefix backend`. |
-| `check:ai` says Gemini is rate limited or over quota | The free tier has per-minute and daily limits. Wait and retry, or enable billing on the Google AI Studio project. Groq covers in the meantime. |
-| A provider's account has no credit left | Top it up, or remove that key and the app runs on the other provider alone. A provider with a rejected key or no credit is skipped for 10 minutes, so the app keeps working. |
-| `check:ai` says the model is not available | Your account can't use the default model. Set `GEMINI_MODEL` or `GROQ_MODEL` to one listed in Google AI Studio or the Groq console. |
-| Logs show `analysis via gemini failed (timeout)` | Gemini took longer than 25 seconds, so Groq took over, and Gemini is then skipped for 3 minutes so later steps don't wait again. Run `npm run check:ai --prefix backend` on your machine to see how long a real CV analysis takes. If Gemini is consistently slow, set `AI_PRIMARY=groq` on Render. |
-| Logs show Gemini `HTTP 503 ... high demand` | Google's servers for that model are busy. The app retries on `GEMINI_FALLBACK_MODEL` and then Groq, so interviews keep working. If it happens often, set `GEMINI_MODEL=gemini-3.5-flash-lite` on Render. |
-| Gemini says "API key not valid" | Copy the key again from aistudio.google.com (API keys), with no spaces, and update it on Render. |
-| No voice button | Voice answers need Chrome or Edge, or the Groq key for the Whisper fallback. Typing always works. |
-| Microphone or camera blocked | Allow them in the browser's site settings. The site must be served over HTTPS (Render does this). |
-| The face check won't pass | Face a light source, keep your whole face in frame at arm's length, and avoid strong backlight. You can still join; the time is recorded. |
-| "Face checks unavailable in this browser" | The face model couldn't load (very old browser or blocked scripts). Window, full-screen and paste checks still run, and the debrief says face checks were not run. |
-| Full screen doesn't open on iPhone | iOS Safari doesn't allow full screen for web pages. The other checks still run. |
-| The interviewer sounds robotic | Voices come from your operating system and browser. Chrome and Edge have the most natural ones. |
-| "This interview session has expired" | The server restarted. Render's free plan sleeps after inactivity. Start a new interview. |
-| First request is slow on Render | The free plan cold-starts in about 30 to 60 seconds. A paid instance stays warm. |
+The live AI check is separate from the offline suite. Read its output: it can report skipped or failed provider checks even when the process exits successfully. There is no lint script configured.
 
-## Known limitations
+For UI development without live providers, build the frontend and run `node backend/test/ui-server.js`. It serves the application with deterministic test responses on port 4173 by default. Use that server only for development checks.
 
-1. **The avatars are photos, not video.** The interviewer is a still photo with speaking, listening and thinking cues, and a voice from the browser. The tile says so. There is no lip sync.
-2. **Photos load from Unsplash** (free license). To self-host them, put images in `frontend/public/avatars` and update `frontend/src/data/panel.js`.
-3. **Sessions live in memory.** A server restart ends any interview in progress, and a single instance is assumed.
-4. **Scores are estimates** from one simulated session, based only on the words of your answers. They are not a measure of ability.
-5. **Free-tier Gemini data use.** On Gemini's free tier, Google may use prompts (which include CV text) to improve its products. Enable billing on the AI Studio project if that matters for your users.
-6. **Company style comes from general knowledge.** There is no live company research.
-7. **Scanned PDFs are not OCR'd directly.** Upload a photo or screenshot of the page instead.
-8. **Integrity checks are a deterrent, not proof.** They run in the candidate's browser, so a determined person can get around them (a second device or someone off camera, for example), and lighting or glasses can cause false flags. Use the summary to decide what to ask about, not to make decisions on its own.
+## Deployment
 
-## Future improvements
+The included `render.yaml` deploys one Node web service. Use `npm run build` as the build command, `npm start` as the start command, and `/api/health` as the health check. Configure secrets in the hosting service rather than committing `.env`. Use HTTPS for browser media access and allow the backend to reach the selected provider APIs.
 
-1. A pluggable lip-synced avatar provider behind `InterviewerTile`, for example a streaming avatar API.
-2. Streaming the interviewer's reply so speech starts before the full response arrives.
-3. Optional accounts with saved reports, to track progress across interviews.
-4. Company research from a search API, clearly labelled with sources.
-5. A coding or whiteboard pane for technical rounds.
-6. Redis-backed sessions, for running more than one instance.
+The build copies local portraits and vision models into the frontend output. Account for the roughly 18 MB object model when serving static assets. Health reports which providers are configured; it does not perform a live inference request or establish provider availability.
+
+Documents support PDF, DOCX, TXT, PNG, JPG and WEBP with a 5 MB upload limit. Extracted document context is limited to 20,000 characters and reports truncation. These document limits are separate from candidate answers. File content is validated during extraction, and uploaded evidence is quoted in prompts with instructions not to follow embedded commands. Those boundaries reduce prompt injection risk but do not make model output infallible.
+
+## Known limitations and next improvements
+
+Vision accuracy depends on lighting, framing, camera quality and device performance. Small or occluded phones may be missed, and supported objects can be misclassified. Head direction and movement are approximations. Browser monitoring is observable evidence, not a secure examination boundary; a modified client can falsify it.
+
+Answers can continue without an application cutoff, but browser memory, provider availability and network interruptions impose practical limits. Reloading the page loses unsent drafts and pending audio. Reports retain full submitted text while AI review uses bounded context. Early endings with too little evidence are shown as insufficient rather than invented scores.
+
+Useful next steps would be persisted sessions with an explicit retention policy, broader device and browser testing, and measured vision evaluation on representative interview conditions. Longer answers could also benefit from a provider-budgeted multi-pass assessment that reviews every section instead of excerpts. These are future work, not current features.

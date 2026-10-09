@@ -58,6 +58,19 @@ test('accepts pasted text', async () => {
   assert.equal(res.status, 200);
 });
 
+test('unknown inherited document names and unexpected upload fields receive safe client errors', async () => {
+  const form = new FormData();
+  form.append('text', 'A document with enough ordinary text to reach the route validation.');
+  const unknown = await fetch(`${base}/documents/toString`, {method:'POST',body:form});
+  assert.equal(unknown.status, 404);
+  assert.deepEqual(await unknown.json(), {error:'Unknown document type.'});
+  const wrongField = new FormData();
+  wrongField.append('unexpected', new Blob(['Data Analyst: SQL, Python, dashboards.']), 'jd.txt');
+  const unexpected = await fetch(`${base}/documents/jd`, {method:'POST',body:wrongField});
+  assert.equal(unexpected.status, 400);
+  assert.ok(!('stack' in await unexpected.json()));
+});
+
 test('rejects unsupported, disguised and empty files with a readable message', async () => {
   const unsupported = await upload('cv', 'unsupported.bin');
   assert.equal(unsupported.status, 415);

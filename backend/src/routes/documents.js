@@ -26,7 +26,7 @@ export function documentsRouter(ai) {
   const router = Router();
 
   router.post('/:kind', upload.single('file'), async (req, res) => {
-    const kind = KINDS[req.params.kind];
+    const kind = Object.hasOwn(KINDS, req.params.kind) ? KINDS[req.params.kind] : null;
     if (!kind) throw new AppError(404, 'Unknown document type.');
 
     let document;

@@ -53,12 +53,15 @@ export async function extractText(file, ai, label) {
 }
 
 async function readPdf(buffer) {
+  let pdf;
   try {
-    const pdf = await getDocumentProxy(new Uint8Array(buffer), { verbosity: 0 });
+    pdf = await getDocumentProxy(new Uint8Array(buffer), { verbosity: 0 });
     const { text } = await extractPdfText(pdf, { mergePages: true });
     return text;
   } catch {
     throw new AppError(422, "We couldn't read that PDF. It may be damaged or password protected.");
+  } finally {
+    await pdf?.loadingTask?.destroy().catch(() => {});
   }
 }
 

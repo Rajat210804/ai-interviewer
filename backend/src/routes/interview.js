@@ -5,7 +5,9 @@ import { cvSchema, jdSchema } from '../ai/schemas.js';
 import { createInterviewEngine } from '../interview/engine.js';
 import { integritySchema } from '../interview/integrity.js';
 
-export const MAX_ANSWER_CHARS = 15000;
+export const MAX_ANSWER_PART_CHARS = 64000;
+const uploadIdSchema = z.string().regex(/^[A-Za-z0-9_-]{8,80}$/);
+const expectedTurnSchema = z.number().int().min(1).max(160);
 
 const cleanLine = (max) => z.string().trim().max(max).transform((s) => s.replace(/[\u0000-\u001f<>]/g, ''));
 
@@ -30,12 +32,24 @@ const startSchema = z.object({
   jd: jdSchema.nullable().default(null),
 });
 
-// Long answers are welcome. Anything past the limit (about 2,500 words) is cut rather than rejected,
-// so a long spoken answer is never lost to a validation error.
+// Individual requests stay bounded; the assembled answer has no application
+// length limit. Raw answer text is preserved, including whitespace and Unicode.
 const answerSchema = z.object({
-  text: z.string().default('').transform((s) => s.trim().slice(0, MAX_ANSWER_CHARS).trim()),
+  expectedTurn: expectedTurnSchema.optional(),
+  text: z.string().optional(),
+  uploadId: uploadIdSchema.optional(),
+  totalParts: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional(),
+  answerCharacters: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER).optional(),
   skipped: z.boolean().default(false),
   integrity: integritySchema.optional().catch(undefined),
+}).refine((answer) => !answer.uploadId || (answer.expectedTurn !== undefined && answer.totalParts !== undefined && answer.answerCharacters !== undefined && answer.text === undefined && !answer.skipped),
+  'A staged answer needs its question number and cannot also contain direct text or a skip.');
+
+const answerPartSchema = z.object({
+  uploadId: uploadIdSchema,
+  expectedTurn: expectedTurnSchema,
+  index: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  text: z.string().min(1).max(MAX_ANSWER_PART_CHARS),
 });
 
 const endSchema = z.object({
@@ -51,9 +65,9 @@ function parse(schema, body) {
   return result.data;
 }
 
-export function interviewRouter(ai) {
+export function interviewRouter(ai, engineOptions) {
   const router = Router();
-  const engine = createInterviewEngine(ai);
+  const engine = createInterviewEngine(ai, engineOptions);
 
   router.post('/start', async (req, res) => {
     res.json(await engine.start(parse(startSchema, req.body)));
@@ -61,6 +75,14 @@ export function interviewRouter(ai) {
 
   router.post('/:id/answer', async (req, res) => {
     res.json(await engine.answer(req.params.id, parse(answerSchema, req.body)));
+  });
+
+  router.post('/:id/answer-parts', (req, res) => {
+    res.json(engine.answerPart(req.params.id, parse(answerPartSchema, req.body)));
+  });
+
+  router.post('/:id/keep-alive', (req, res) => {
+    res.json(engine.keepAlive(req.params.id));
   });
 
   router.post('/:id/end', async (req, res) => {
