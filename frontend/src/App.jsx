@@ -8,6 +8,7 @@ import SetupScreen from './components/SetupScreen';
 import WaitingRoom from './components/WaitingRoom';
 import InterviewRoom from './components/InterviewRoom';
 import ReportScreen from './components/ReportScreen';
+import PracticeWorkspace from './components/PracticeWorkspace';
 
 const initialSetup = () => ({
   company: '',
@@ -25,7 +26,10 @@ export default function App() {
   const [setup, setSetup] = useState(initialSetup);
   const [interview, setInterview] = useState(null);
   const [report, setReport] = useState(null);
+  const [reportId, setReportId] = useState(null);
   const [health, setHealth] = useState(null);
+  const [practiceTab, setPracticeTab] = useState('questions');
+  const [practiceReturn, setPracticeReturn] = useState('setup');
   const { docs, analyze, clear, ready } = useDocuments();
   // One camera stream for the waiting room and the interview, so the browser doesn't ask twice.
   const camera = useCamera();
@@ -48,6 +52,7 @@ export default function App() {
       waiting: 'Device check',
       interview: 'Interview in progress',
       report: 'Interview report',
+      practice: 'Practice workspace',
     };
     document.title = `${labels[screen]} · Interview Room`;
     const heading = document.querySelector('h1');
@@ -68,6 +73,7 @@ export default function App() {
       stopSpeaking();
       exitFullscreen();
       setReport(result);
+      setReportId(crypto.randomUUID());
       setScreen('report');
     },
     [camera.stop],
@@ -87,6 +93,16 @@ export default function App() {
     setInterview(null);
     setReport(null);
     setScreen('setup');
+  }
+
+  function openPractice(tab = 'questions') {
+    setPracticeTab(tab);
+    setPracticeReturn(screen === 'report' ? 'report' : 'setup');
+    setScreen('practice');
+  }
+
+  if (screen === 'practice') {
+    return <PracticeWorkspace initialTab={practiceTab} backLabel={practiceReturn === 'report' ? 'Back to report' : 'Interview setup'} onBack={() => setScreen(practiceReturn)} />;
   }
 
   if (screen === 'waiting') {
@@ -113,7 +129,7 @@ export default function App() {
     );
   }
   if (screen === 'report') {
-    return <ReportScreen report={report} onRestart={restart} />;
+    return <ReportScreen report={report} reportId={reportId} onRestart={restart} onOpenHistory={() => openPractice('history')} />;
   }
   return (
     <SetupScreen
@@ -124,6 +140,7 @@ export default function App() {
       onClear={clear}
       health={health}
       onStart={() => setScreen('waiting')}
+      onOpenPractice={openPractice}
     />
   );
 }

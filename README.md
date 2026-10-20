@@ -11,11 +11,13 @@ No account needed. Enter any job role to begin; adding a CV or job description m
 - Practise HR, technical or mixed interviews with an AI panel.
 - Start with a practice preset or customise the difficulty, panel and question count.
 - Use the answer guide to prepare examples before your session.
+- Browse 18 practice questions by topic and level, draft answers, and bookmark questions to revisit.
 - Get follow-up questions based on your responses, at your own pace.
 - Review feedback, a full transcript and a preparation checklist. Save the report as PDF or text.
+- Save reports on your browser and review score history by role, format and difficulty.
 - Choose relaxed practice or optional camera and browser monitoring.
 
-The feedback is for practice, not a hiring assessment. Sessions are temporary: save your report before leaving. Camera checks run on your device; submitted documents, answers and recorded audio are processed by the configured AI providers.
+The feedback is for practice, not a hiring assessment. Sessions are temporary: download your report or choose **Save to this browser** before leaving. Saved reports include your answers, stay on that browser profile and can be deleted from Saved reports. They do not sync across devices. Question-library drafts are not saved or sent to AI. Camera checks run on your device; submitted interview documents, answers and recorded audio are processed by the configured AI providers.
 
 ## Run locally
 

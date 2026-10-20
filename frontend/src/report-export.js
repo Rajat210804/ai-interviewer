@@ -41,8 +41,8 @@ export function reportText(report) {
   return lines.join('\n');
 }
 
-export function downloadReport(report) {
-  const url = URL.createObjectURL(new Blob([reportText(report)], { type: 'text/plain;charset=utf-8' }));
+export function downloadText(text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = 'ai-interviewer-report.txt';
@@ -50,4 +50,8 @@ export function downloadReport(report) {
   anchor.click();
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export function downloadReport(report) {
+  downloadText(reportText(report));
 }

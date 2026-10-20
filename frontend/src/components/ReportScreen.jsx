@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { AlertTriangle, ArrowUpRight, BookOpen, ChevronDown, CircleAlert, CircleCheck, Download, FileText, Plus, Printer, ShieldCheck } from 'lucide-react';
 import { downloadReport } from '../report-export';
+import { readReports, saveReport, storageError } from '../practice-storage';
 import { BreakdownBars, QuestionScores, ScoreRing } from './ReportCharts';
 import { Button, Spinner } from './ui';
 import { CATEGORY_LABEL, DIFFICULTIES, INTERVIEW_TYPES } from '../data/panel';
@@ -47,11 +48,28 @@ const Card = ({ title, children, className = '', ...props }) => (
   </section>
 );
 
-export default function ReportScreen({ report, onRestart }) {
+export default function ReportScreen({ report, reportId, onRestart, onOpenHistory }) {
   const [printing, setPrinting] = useState(false);
   const [filter, setFilter] = useState('all');
   const [expanded, setExpanded] = useState(() => new Set());
   const [completedSteps, setCompletedSteps] = useState(() => new Set());
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const saveToBrowser = () => {
+    try {
+      saveReport(window.localStorage, report, reportId);
+      setSaved(true); setSaveError('');
+    } catch (cause) { setSaveError(storageError(cause)); }
+  };
+  useEffect(() => {
+    const sync = () => {
+      try { setSaved(readReports(window.localStorage).some((entry) => entry.id === reportId)); }
+      catch { setSaved(false); }
+    };
+    sync();
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, [reportId]);
   useEffect(() => {
     const before = () => flushSync(() => setPrinting(true));
     const after = () => setPrinting(false);
@@ -124,6 +142,20 @@ export default function ReportScreen({ report, onRestart }) {
           <Button variant="primary" onClick={onRestart}><Plus className="size-4" aria-hidden="true" /> New interview</Button>
         </div>
       </header>
+
+      <div className="no-print mt-5 rounded-xl border border-accent/25 bg-accent-soft/15 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="max-w-xl">
+            <p className="text-sm font-medium">Keep this session for your next practice.</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted">Saving keeps the feedback and full answer transcript on this browser. Anyone using this browser profile can read it. You can delete it from Saved reports.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={saveToBrowser} disabled={saved}>{saved ? 'Saved to this browser' : 'Save to this browser'}</Button>
+            {onOpenHistory && <Button onClick={onOpenHistory}>Saved reports</Button>}
+          </div>
+        </div>
+        <p className={`mt-2 text-xs ${saveError ? 'text-critical' : 'text-good'}`} role="status">{saveError || (saved ? 'Report saved. It will be available here after you reload.' : '')}</p>
+      </div>
 
       <nav className="no-print flex flex-wrap gap-x-6 gap-y-3 py-5 text-sm" aria-label="Report sections">
         <a href="#report-overview" className="text-ink-soft hover:text-accent">Overview</a>

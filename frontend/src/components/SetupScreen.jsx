@@ -101,6 +101,7 @@ export default function SetupScreen({
   onClear,
   health,
   onStart,
+  onOpenPractice,
 }) {
   const update = (changes) =>
     setSetup((current) => ({ ...current, ...changes }));
@@ -136,7 +137,11 @@ export default function SetupScreen({
           </span>
           Interview Room
         </a>
-        <a href="#practice-guide" className="text-xs text-muted hover:text-accent sm:text-sm">Answer guide</a>
+        <nav className="flex flex-wrap justify-end gap-x-4 gap-y-2 text-xs text-muted sm:text-sm" aria-label="Preparation">
+          <button type="button" onClick={() => onOpenPractice('questions')} className="rounded hover:text-accent">Question library</button>
+          <button type="button" onClick={() => onOpenPractice('history')} className="rounded hover:text-accent">Saved reports</button>
+          <a href="#practice-guide" className="hover:text-accent">Answer guide</a>
+        </nav>
       </header>
 
       <div className="py-8 sm:py-10">
