@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { AlertTriangle, ArrowUpRight, BookOpen, ChevronDown, CircleAlert, CircleCheck, FileText, Plus, Printer, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, BookOpen, ChevronDown, CircleAlert, CircleCheck, Download, FileText, Plus, Printer, ShieldCheck } from 'lucide-react';
+import { downloadReport } from '../report-export';
 import { BreakdownBars, QuestionScores, ScoreRing } from './ReportCharts';
 import { Button, Spinner } from './ui';
 import { CATEGORY_LABEL, DIFFICULTIES, INTERVIEW_TYPES } from '../data/panel';
@@ -50,6 +51,7 @@ export default function ReportScreen({ report, onRestart }) {
   const [printing, setPrinting] = useState(false);
   const [filter, setFilter] = useState('all');
   const [expanded, setExpanded] = useState(() => new Set());
+  const [completedSteps, setCompletedSteps] = useState(() => new Set());
   useEffect(() => {
     const before = () => flushSync(() => setPrinting(true));
     const after = () => setPrinting(false);
@@ -117,6 +119,7 @@ export default function ReportScreen({ report, onRestart }) {
           <p className="mt-2 text-sm text-ink-soft">{[report.company, typeLabel, difficultyLabel].filter(Boolean).join(' · ') || 'Practice interview'}</p>
         </div>
         <div className="no-print flex flex-wrap gap-2">
+          <Button onClick={() => downloadReport(report)}><Download className="size-4" aria-hidden="true" /> Download text</Button>
           <Button onClick={savePdf}><Printer className="size-4" aria-hidden="true" /> Save as PDF</Button>
           <Button variant="primary" onClick={onRestart}><Plus className="size-4" aria-hidden="true" /> New interview</Button>
         </div>
@@ -205,6 +208,11 @@ export default function ReportScreen({ report, onRestart }) {
 
           {preparation.length > 0 && (
             <Card id="report-preparation" title="Your next preparation steps" className="mt-5 scroll-mt-6">
+              <div className="no-print mb-5">
+                <p className="text-sm text-ink-soft" aria-live="polite">{completedSteps.size} of {preparation.length} steps completed</p>
+                <progress className="mt-2 h-2 w-full accent-accent" value={completedSteps.size} max={preparation.length} aria-label="Preparation progress" />
+                <p className="mt-2 text-xs text-muted">Check off each step as you practise. Progress lasts while this report is open.</p>
+              </div>
               <ol className="grid gap-5 md:grid-cols-2">
                 {preparation.map((item, i) => (
                   <li key={`${item.topic}-${i}`} className="flex gap-3">
@@ -213,6 +221,15 @@ export default function ReportScreen({ report, onRestart }) {
                       <h3 className="text-sm font-medium text-ink">{item.topic}</h3>
                       {item.why && <p className="mt-1 text-sm leading-relaxed text-ink-soft">{item.why}</p>}
                       {item.how && <p className="mt-2 flex gap-2 text-xs leading-relaxed text-muted"><BookOpen className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />{item.how}</p>}
+                      <label className="no-print mt-3 flex cursor-pointer items-center gap-2 text-xs text-ink-soft">
+                        <input type="checkbox" className="size-4 accent-accent" checked={completedSteps.has(i)} onChange={() => setCompletedSteps((previous) => {
+                          const next = new Set(previous);
+                          if (next.has(i)) next.delete(i);
+                          else next.add(i);
+                          return next;
+                        })} />
+                        <span>Practised<span className="sr-only">: {item.topic}</span></span>
+                      </label>
                     </div>
                   </li>
                 ))}
@@ -249,7 +266,7 @@ export default function ReportScreen({ report, onRestart }) {
       {report.integrity ? <IntegrityCard integrity={report.integrity} /> : (
         <p className="mt-6 flex gap-2 text-xs leading-relaxed text-muted"><ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" /> No monitoring summary was recorded. Relaxed practice sessions do not run interview monitoring.</p>
       )}
-      <p className="no-print mt-8 text-center text-xs text-muted">Save a PDF to keep this report before starting another interview.</p>
+      <p className="no-print mt-8 text-center text-xs text-muted">Save a PDF or download the text to keep this report before starting another interview.</p>
     </div>
   );
 }

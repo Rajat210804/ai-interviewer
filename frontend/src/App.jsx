@@ -17,7 +17,7 @@ const initialSetup = () => ({
   difficulty: 'medium',
   length: 10,
   panel: buildPanel('mixed', 2),
-  proctored: true, // Local camera checks and observable browser activity; relaxed practice can disable them.
+  proctored: false, // First-time practice works with typed answers and an optional camera.
 });
 
 export default function App() {

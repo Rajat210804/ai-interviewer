@@ -9,6 +9,7 @@ import {
   Video,
 } from 'lucide-react';
 import DocumentCard from './DocumentCard';
+import PracticeGuide from './PracticeGuide';
 import { Button, ErrorBanner, OptionGroup, Portrait, TextField } from './ui';
 import {
   AVATARS,
@@ -56,6 +57,12 @@ const WORKFLOW = [
     detail: 'Get a score, specific feedback and areas to work on.',
   },
 ];
+const PRESETS = [
+  { label: 'First interview', detail: 'Build confidence with a supportive mixed session.', type: 'mixed', difficulty: 'easy', size: 1 },
+  { label: 'Technical practice', detail: 'Work through skills, decisions and trade-offs.', type: 'technical', difficulty: 'medium', size: 2 },
+  { label: 'Behavioural practice', detail: 'Practise clear examples of teamwork and ownership.', type: 'hr', difficulty: 'medium', size: 1 },
+];
+const ROLE_SUGGESTIONS = ['Software Engineer', 'Data Analyst', 'Product Manager', 'Marketing Executive', 'Sales Associate', 'Customer Support'];
 
 function Section({ step, title, description, children }) {
   return (
@@ -129,9 +136,7 @@ export default function SetupScreen({
           </span>
           Interview Room
         </a>
-        <span className="text-xs text-muted sm:text-sm">
-          Practice workspace
-        </span>
+        <a href="#practice-guide" className="text-xs text-muted hover:text-accent sm:text-sm">Answer guide</a>
       </header>
 
       <div className="py-8 sm:py-10">
@@ -146,6 +151,7 @@ export default function SetupScreen({
           or a job description, answer in your own words, and leave with useful
           feedback.
         </p>
+        <p className="mt-4 text-xs font-medium text-accent">No account needed · Any job role · Voice or text</p>
         <div className="mt-7 grid gap-4 border-y border-line py-5 md:grid-cols-3 md:gap-6">
           {WORKFLOW.map(({ icon: Icon, title, detail }, index) => (
             <div key={title} className="flex items-start gap-3">
@@ -174,6 +180,24 @@ export default function SetupScreen({
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_350px]">
         <div className="min-w-0 space-y-5">
+          <section className="rounded-xl border border-accent/30 bg-accent-soft/15 p-5 sm:p-6" aria-labelledby="quick-start-heading">
+            <h2 id="quick-start-heading" className="text-base font-semibold text-ink">Find your starting point</h2>
+            <p className="mt-1 text-sm text-muted">Choose a format, then enter your role below. Every setting is editable.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              {PRESETS.map((preset) => {
+                const selected = setup.type === preset.type && setup.difficulty === preset.difficulty && setup.panel.length === preset.size && setup.length === 10 && !setup.proctored;
+                return (
+                  <button type="button" key={preset.label} aria-pressed={selected}
+                    onClick={() => update({ type: preset.type, difficulty: preset.difficulty, length: 10, proctored: false, panel: buildPanel(preset.type, preset.size, setup.panel) })}
+                    className={`rounded-lg border p-4 text-left transition-colors ${selected ? 'border-accent bg-accent-soft/40' : 'border-line bg-surface hover:border-accent/60'}`}>
+                    <span className="block text-sm font-medium text-ink">{preset.label}</span>
+                    <span className="mt-2 block text-xs leading-relaxed text-muted">{preset.detail}</span>
+                    <span className="mt-3 block text-xs text-accent">10 questions · Relaxed</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
           <Section
             step={1}
             title="Choose the role"
@@ -212,6 +236,13 @@ export default function SetupScreen({
                 that company's private interview process.
               </p>
             </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2" role="group" aria-label="Suggested job roles">
+              <span className="text-xs text-muted">Try a role:</span>
+              {ROLE_SUGGESTIONS.map((role) => (
+                <button type="button" key={role} onClick={() => update({ role })} className="rounded-full border border-line px-3 py-1.5 text-xs text-ink-soft hover:border-accent hover:text-accent">{role}</button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted">These are examples. You can enter any role above.</p>
           </Section>
 
           <Section
@@ -349,6 +380,7 @@ export default function SetupScreen({
               })}
             </div>
           </Section>
+          <PracticeGuide />
         </div>
 
         <aside
@@ -479,6 +511,7 @@ export default function SetupScreen({
       <footer className="mt-8 border-t border-line pt-5 text-xs leading-relaxed text-muted">
         A practice session, not a hiring decision. AI feedback is a starting
         point for your preparation.
+        <a href="https://ai-interviewer-7eqv.onrender.com" className="mt-3 block w-fit text-accent hover:underline">AI Interviewer · Live app ↗</a>
       </footer>
       <div className="no-print fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface px-4 py-3 lg:hidden">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
